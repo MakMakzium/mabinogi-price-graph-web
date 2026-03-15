@@ -8,5 +8,5 @@ services:
     envVars:
       - key: NEXON_API_KEYS         # 복수 키 (콤마 구분): "key1,key2,key3"
         sync: false                  # Render 대시보드에서 직접 입력
-      - key: ALLOWED_ORIGINS         # 프론트엔드 Netlify 주소 확정 후 입력
+      - key: ALLOWED_ORIGINS         # 프론트엔드 Cloudflare Pages 주소 확정 후 입력
         sync: false

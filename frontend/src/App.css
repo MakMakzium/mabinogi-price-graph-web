@@ -337,6 +337,92 @@ body {
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
 }
 
+/* ── 콤보박스 ─────────────────────────────────────────────────────────────── */
+
+.combobox-wrap {
+  position: relative;
+  min-width: 180px;
+}
+
+.combobox-input {
+  width: 100%;
+  padding: 0.52rem 0.78rem;
+  border-radius: 6px;
+  border: 1.5px solid var(--border);
+  background-color: var(--bg-input);
+  color: var(--text-1);
+  font-size: 0.87rem;
+  outline: none;
+  transition: border-color 0.15s, background-color 0.2s;
+}
+
+.combobox-input:focus  { border-color: var(--border-focus); }
+.combobox-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.combobox-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 220px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 200;
+  box-shadow: var(--shadow-md);
+}
+
+.combobox-dropdown li {
+  padding: 0.44rem 0.75rem;
+  font-size: 0.84rem;
+  cursor: pointer;
+  color: var(--text-1);
+  transition: background-color 0.1s;
+}
+
+.combobox-dropdown li:hover,
+.combobox-dropdown li.selected {
+  background-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* ── 슬롯 섹션 ────────────────────────────────────────────────────────────── */
+
+.slot-section {
+  padding-left: 68px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.slot-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.slot-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-3);
+  min-width: 60px;
+  text-align: right;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  flex-shrink: 0;
+}
+
+.slot-label-primary { color: var(--accent); }
+
+.slot-hint {
+  font-size: 0.7rem;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
 /* ── AND 조건 버튼들 ──────────────────────────────────────────────────────── */
 
 .btn-add-condition {

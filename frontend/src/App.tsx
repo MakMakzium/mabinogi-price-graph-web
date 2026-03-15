@@ -25,6 +25,17 @@ const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:800
 const COLOR_OPTION_TYPES = new Set(['아이템 색상', '색상']);
 const isColorType = (t: string) => COLOR_OPTION_TYPES.has(t);
 
+// 슬롯 번호(1/2/3)로 나뉘는 다중 인스턴스 옵션 타입
+// 아이템 하나에 동일 타입이 여러 슬롯으로 붙을 수 있어 3개 필드로 입력
+const SLOT_TYPED_OPTIONS = new Set([
+  '세공 옵션',
+  '무리아스의 유물',
+  '사용 효과',
+  '세트 효과',
+  '조미료 효과',
+]);
+const isSlotTyped = (t: string) => SLOT_TYPED_OPTIONS.has(t);
+
 // ── 유틸리티 ──────────────────────────────────────────────────────────────────
 
 const hexToRgbString = (hex: string) => {
@@ -44,7 +55,7 @@ const fmt = (p: number) => p.toLocaleString('ko-KR') + '원';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
-type Theme    = 'dark' | 'light' | 'simple';
+type Theme      = 'dark' | 'light' | 'simple';
 type OptionsMap = { [type: string]: string[] };
 type ColorView  = 'swatch' | 'bar';
 type SortDir    = 'asc' | 'desc';
@@ -52,16 +63,56 @@ type SortDir    = 'asc' | 'desc';
 interface AndCondition { type: string; subType: string; value: string; }
 interface ColorEntry   { r: number; g: number; b: number; hex: string; price: number; }
 
-const THEME_ICONS: Record<Theme, string> = {
-  light:  '☀️',
-  dark:   '🌙',
-  simple: '⭐',
-};
+const THEME_ICONS:  Record<Theme, string> = { light: '☀️', dark: '🌙', simple: '⭐' };
+const THEME_TITLES: Record<Theme, string> = { light: '라이트', dark: '다크', simple: '심플' };
 
-const THEME_TITLES: Record<Theme, string> = {
-  light:  '라이트',
-  dark:   '다크',
-  simple: '심플',
+// ── 콤보박스 컴포넌트 ──────────────────────────────────────────────────────────
+
+const ComboboxInput = ({
+  value, onChange, suggestions, placeholder, disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  suggestions: string[];
+  placeholder?: string;
+  disabled?: boolean;
+}) => {
+  const [open, setOpen] = useState(false);
+
+  const filtered = useMemo(() => {
+    if (!value) return suggestions;
+    const q = value.toLowerCase();
+    return suggestions.filter(s => s.toLowerCase().includes(q));
+  }, [value, suggestions]);
+
+  return (
+    <div className="combobox-wrap">
+      <input
+        type="text"
+        className="combobox-input"
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder={placeholder}
+        disabled={disabled}
+        autoComplete="off"
+      />
+      {open && !disabled && filtered.length > 0 && (
+        <ul className="combobox-dropdown">
+          {filtered.slice(0, 30).map(s => (
+            <li
+              key={s}
+              className={s === value ? 'selected' : ''}
+              onMouseDown={() => { onChange(s); setOpen(false); }}
+            >
+              {s}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 };
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -77,6 +128,8 @@ function App() {
   const [itemName,       setItemName]       = useState('');
   const [primaryType,    setPrimaryType]    = useState('');
   const [primarySubType, setPrimarySubType] = useState('');
+  // 슬롯 타입용 3개 입력 필드 (인덱스 0 = 그래프 기준, 1·2 = AND 조건)
+  const [primarySlots,   setPrimarySlots]   = useState<[string, string, string]>(['', '', '']);
   const [andConditions,  setAndConditions]  = useState<AndCondition[]>([]);
 
   const [chartData,   setChartData]   = useState<any>(null);
@@ -85,9 +138,8 @@ function App() {
 
   const [colorView, setColorView] = useState<ColorView>('swatch');
   const [sortDir,   setSortDir]   = useState<SortDir>('asc');
-
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState<string | null>(null);
 
   const optionTypes = Object.keys(options).sort();
 
@@ -124,6 +176,13 @@ function App() {
   const handlePrimaryTypeChange = (t: string) => {
     setPrimaryType(t);
     setPrimarySubType((options[t] || [])[0] ?? '');
+    setPrimarySlots(['', '', '']);
+  };
+
+  const updatePrimarySlot = (i: 0 | 1 | 2, v: string) => {
+    const s = [...primarySlots] as [string, string, string];
+    s[i] = v;
+    setPrimarySlots(s);
   };
 
   const addAndCondition = () => {
@@ -131,7 +190,7 @@ function App() {
     const t = optionTypes[0] ?? '';
     setAndConditions([...andConditions, {
       type: t,
-      subType: (options[t] || [])[0] ?? '',
+      subType: isSlotTyped(t) ? '' : ((options[t] || [])[0] ?? ''),
       value: isColorType(t) ? '0,0,0' : '',
     }]);
   };
@@ -142,7 +201,11 @@ function App() {
   const updateAndCond = (i: number, field: 'type' | 'subType', val: string) => {
     const upd = [...andConditions];
     if (field === 'type') {
-      upd[i] = { type: val, subType: (options[val] || [])[0] ?? '', value: isColorType(val) ? '0,0,0' : '' };
+      upd[i] = {
+        type: val,
+        subType: isSlotTyped(val) ? '' : ((options[val] || [])[0] ?? ''),
+        value: isColorType(val) ? '0,0,0' : '',
+      };
     } else {
       upd[i] = { ...upd[i], subType: val };
     }
@@ -161,14 +224,31 @@ function App() {
     if (!itemName.trim()) { setError('아이템 이름을 입력해주세요.'); return; }
     if (!primaryType)     { setError('그래프 기준 옵션을 선택해주세요.'); return; }
 
+    const slotBased = isSlotTyped(primaryType);
+    if (slotBased && !primarySlots[0].trim()) {
+      setError(`${primaryType}의 슬롯 1에 기준 스탯을 입력해주세요.`);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setChartData(null);
     setColorData(null);
 
-    const optionId = buildId(primaryType, primarySubType);
-    const andStr   = andConditions
-      .filter(c => c.type)
+    // 슬롯 타입: 슬롯 1 → option_id, 슬롯 2·3 → 내부 AND 조건
+    const optionId = slotBased
+      ? buildId(primaryType, primarySlots[0].trim())
+      : buildId(primaryType, primarySubType);
+
+    const slotAnds: AndCondition[] = slotBased
+      ? ([1, 2] as const)
+          .filter(i => primarySlots[i].trim())
+          .map(i => ({ type: primaryType, subType: primarySlots[i].trim(), value: '' }))
+      : [];
+
+    const allAnds = [...slotAnds, ...andConditions.filter(c => c.type)];
+
+    const andStr = allAnds
       .map(c => {
         const id = buildId(c.type, c.subType);
         return isColorType(c.type) && c.value ? `${id}|${c.value}` : id;
@@ -177,7 +257,7 @@ function App() {
 
     const condLabel = [
       optionId,
-      ...andConditions.filter(c => c.type).map(c => {
+      ...allAnds.map(c => {
         const id = buildId(c.type, c.subType);
         return isColorType(c.type) && c.value ? `${id}=(${c.value})` : id;
       }),
@@ -319,16 +399,42 @@ function App() {
 
         {/* 옵션 선택 */}
         <div className="option-section">
-          {/* 기준 옵션 */}
+
+          {/* 기준 옵션 — 타입 선택 */}
           <div className="option-row primary-row">
             <span className="option-label">그래프 기준</span>
             <div className="option-selects">
               <select value={primaryType} onChange={e => handlePrimaryTypeChange(e.target.value)} disabled={optionsLoading}>
                 {optionTypes.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
-              <SubTypeSelect type={primaryType} subType={primarySubType} onChange={setPrimarySubType} />
+              {/* 일반 타입: 서브타입 드롭다운 */}
+              {!isSlotTyped(primaryType) && (
+                <SubTypeSelect type={primaryType} subType={primarySubType} onChange={setPrimarySubType} />
+              )}
             </div>
           </div>
+
+          {/* 슬롯 타입: 3개 콤보박스 */}
+          {isSlotTyped(primaryType) && (
+            <div className="slot-section">
+              {([0, 1, 2] as const).map(i => (
+                <div key={i} className="slot-row">
+                  <span className={`option-label slot-label${i === 0 ? ' slot-label-primary' : ''}`}>
+                    슬롯 {i + 1}{i === 0 ? ' ★' : ''}
+                  </span>
+                  <ComboboxInput
+                    value={primarySlots[i]}
+                    onChange={v => updatePrimarySlot(i, v)}
+                    suggestions={options[primaryType] || []}
+                    placeholder={i === 0 ? '기준 스탯 (필수)' : '추가 조건 (선택)'}
+                    disabled={optionsLoading}
+                  />
+                  {i === 0 && <span className="slot-hint">→ 그래프 X축</span>}
+                  {i > 0  && <span className="slot-hint">→ AND 조건</span>}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* AND 조건 */}
           {andConditions.map((cond, i) => (
@@ -338,7 +444,21 @@ function App() {
                 <select value={cond.type} onChange={e => updateAndCond(i, 'type', e.target.value)} disabled={optionsLoading}>
                   {optionTypes.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
-                <SubTypeSelect type={cond.type} subType={cond.subType} onChange={v => updateAndCond(i, 'subType', v)} />
+
+                {/* 슬롯 타입 AND: 콤보박스 */}
+                {isSlotTyped(cond.type) ? (
+                  <ComboboxInput
+                    value={cond.subType}
+                    onChange={v => updateAndCond(i, 'subType', v)}
+                    suggestions={options[cond.type] || []}
+                    placeholder="스탯 입력"
+                    disabled={optionsLoading}
+                  />
+                ) : (
+                  <SubTypeSelect type={cond.type} subType={cond.subType} onChange={v => updateAndCond(i, 'subType', v)} />
+                )}
+
+                {/* 색상 타입 AND: 컬러피커 */}
                 {isColorType(cond.type) && (
                   <div className="color-picker-inline">
                     <input

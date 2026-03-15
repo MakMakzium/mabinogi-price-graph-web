@@ -6,7 +6,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: NEXON_API_KEY
-        sync: false        # Render 대시보드에서 직접 입력 (코드에 노출 안 됨)
-      - key: ALLOWED_ORIGINS
-        sync: false        # 나중에 Netlify 주소 확정되면 입력
+      - key: NEXON_API_KEYS         # 복수 키 (콤마 구분): "key1,key2,key3"
+        sync: false                  # Render 대시보드에서 직접 입력
+      - key: ALLOWED_ORIGINS         # 프론트엔드 Netlify 주소 확정 후 입력
+        sync: false

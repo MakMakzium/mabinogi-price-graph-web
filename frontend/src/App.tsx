@@ -148,10 +148,11 @@ function App() {
   const [colorData,   setColorData]   = useState<ColorEntry[] | null>(null);
   const [resultLabel, setResultLabel] = useState('');
 
-  const [colorView,     setColorView]     = useState<ColorView>('inline');
-  const [sortDir,       setSortDir]       = useState<SortDir>('asc');
-  const [inlinePage,    setInlinePage]    = useState(1);
-  const [inlinePageSize, setInlinePageSize] = useState(20);
+  const [colorView,        setColorView]        = useState<ColorView>('inline');
+  const [sortDir,          setSortDir]          = useState<SortDir>('asc');
+  const [inlinePage,       setInlinePage]       = useState(1);
+  const [inlinePageSize,   setInlinePageSize]   = useState(20);
+  const [inlineItemsPerRow, setInlineItemsPerRow] = useState(8);
 
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
@@ -204,12 +205,12 @@ function App() {
   }, [andConditions]); // eslint-disable-line
 
   // ── 페이지 리셋 ─────────────────────────────────────────────────────────────
-  useEffect(() => { setInlinePage(1); }, [colorData, sortDir, inlinePageSize]);
+  useEffect(() => { setInlinePage(1); }, [colorData, sortDir, inlinePageSize, inlineItemsPerRow]);
 
   // ── 차트 테마 ───────────────────────────────────────────────────────────────
-  const chartColors = useMemo(() => theme === 'dark'
-    ? { text: '#c8d0e0', grid: 'rgba(255,255,255,0.07)', ticks: '#7d8ba5' }
-    : { text: '#1a2235', grid: 'rgba(0,0,0,0.07)',       ticks: '#4b5a6e' }
+  const chartColors = useMemo(() => theme === 'light'
+    ? { text: '#1a2235', grid: 'rgba(0,0,0,0.07)',       ticks: '#4b5a6e' }
+    : { text: '#c8d0e0', grid: 'rgba(255,255,255,0.07)', ticks: '#7d8ba5' }
   , [theme]);
 
   // ── 핸들러 ────────────────────────────────────────────────────────────────
@@ -602,7 +603,10 @@ function App() {
             {/* 인라인 뷰 */}
             {colorView === 'inline' && (
               <div className="inline-view">
-                <div className="inline-strip">
+                <div
+                  className="inline-strip"
+                  style={{ '--inline-cols': inlineItemsPerRow } as React.CSSProperties}
+                >
                   {pagedColors.map((e, i) => (
                     <div key={i} className="inline-item">
                       <div className="inline-color-bar" style={{ backgroundColor: e.hex }} />
@@ -636,6 +640,15 @@ function App() {
                   >
                     {[10, 20, 50, 100].map(n => (
                       <option key={n} value={n}>{n}개씩</option>
+                    ))}
+                  </select>
+                  <select
+                    className="page-size-select"
+                    value={inlineItemsPerRow}
+                    onChange={e => setInlineItemsPerRow(Number(e.target.value))}
+                  >
+                    {[4, 5, 6, 8, 10, 12].map(n => (
+                      <option key={n} value={n}>행당 {n}개</option>
                     ))}
                   </select>
                 </div>

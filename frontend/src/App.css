@@ -53,30 +53,229 @@
   --header-border:  #dce4f0;
 }
 
+/* ⭐ 별 테마 — 심우주 */
 :root[data-theme="simple"] {
-  --bg-app:         #f6f6f6;
-  --bg-card:        #ffffff;
-  --bg-input:       #f0f0f0;
-  --border:         #ddd;
-  --border-focus:   #111;
-  --text-1:         #111;
-  --text-2:         #555;
-  --text-3:         #aaa;
-  --accent:         #222;
-  --accent-dim:     rgba(0, 0, 0, 0.06);
-  --accent-hover:   #000;
-  --btn-fg:         #fff;
-  --btn-disabled-bg:#ddd;
-  --btn-disabled-fg:#aaa;
-  --and-accent:     #555;
-  --danger:         #c00;
-  --price-color:    #b33;
-  --shadow-sm:      none;
-  --shadow-md:      none;
-  --chart-bg:       #ffffff;
-  --swatch-border:  #e0e0e0;
-  --swatch-bg:      #fafafa;
-  --header-border:  #e0e0e0;
+  --bg-app:         #07051a;
+  --bg-card:        #0f0c2e;
+  --bg-input:       #16133a;
+  --border:         #2c2860;
+  --border-focus:   #ffc94a;
+  --text-1:         #eae6ff;
+  --text-2:         #9080c0;
+  --text-3:         #483c6e;
+  --accent:         #ffc94a;
+  --accent-dim:     rgba(255, 201, 74, 0.13);
+  --accent-hover:   #ffd96a;
+  --btn-fg:         #07051a;
+  --btn-disabled-bg:#2c2860;
+  --btn-disabled-fg:#483c6e;
+  --and-accent:     #c084fc;
+  --danger:         #ff7070;
+  --price-color:    #ffc94a;
+  --shadow-sm:      0 2px 12px rgba(0, 0, 0, 0.7);
+  --shadow-md:      0 8px 32px rgba(0, 0, 0, 0.8);
+  --chart-bg:       #0c0924;
+  --swatch-border:  #2c2860;
+  --swatch-bg:      #0f0c2e;
+  --header-border:  rgba(255, 201, 74, 0.15);
+}
+
+/* ── ⭐ 별 테마 전용 스타일 ───────────────────────────────────────────────── */
+
+/* 배경: 우주 + 별 */
+[data-theme="simple"] body {
+  background-color: #07051a;
+  background-image:
+    /* 성운 광채 */
+    radial-gradient(ellipse at 15% 40%, rgba(120, 60, 220, 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 20%, rgba(40, 60, 200, 0.14) 0%, transparent 50%),
+    radial-gradient(ellipse at 60% 85%, rgba(160, 40, 180, 0.10) 0%, transparent 45%),
+    /* 별 — 큰 것 */
+    radial-gradient(circle, rgba(255,255,255,0.95) 1px, transparent 1px) 12%  8%  / 200px 180px,
+    radial-gradient(circle, rgba(255,255,255,0.85) 1px, transparent 1px) 47%  22% / 250px 220px,
+    radial-gradient(circle, rgba(255,255,255,0.90) 1px, transparent 1px) 78%  55% / 180px 200px,
+    radial-gradient(circle, rgba(255,255,255,0.80) 1px, transparent 1px) 33%  71% / 220px 160px,
+    radial-gradient(circle, rgba(255,255,255,0.88) 1px, transparent 1px) 91%  38% / 190px 240px,
+    radial-gradient(circle, rgba(255,255,255,0.75) 1px, transparent 1px) 58%  88% / 230px 170px,
+    /* 별 — 중간 것 */
+    radial-gradient(circle, rgba(255,255,255,0.60) 0.5px, transparent 0.5px) 25%  50% / 120px 130px,
+    radial-gradient(circle, rgba(255,255,255,0.55) 0.5px, transparent 0.5px) 67%  15% / 140px 110px,
+    radial-gradient(circle, rgba(255,255,255,0.65) 0.5px, transparent 0.5px) 5%   78% / 110px 150px,
+    radial-gradient(circle, rgba(255,255,255,0.50) 0.5px, transparent 0.5px) 82%  90% / 130px 120px,
+    radial-gradient(circle, rgba(255,255,255,0.58) 0.5px, transparent 0.5px) 44%  40% / 160px 140px,
+    /* 별 — 작은 것 */
+    radial-gradient(circle, rgba(255,255,255,0.35) 0.5px, transparent 0.5px)  8%  30% / 70px 80px,
+    radial-gradient(circle, rgba(255,255,255,0.30) 0.5px, transparent 0.5px) 72%  65% / 85px 75px,
+    radial-gradient(circle, rgba(255,255,255,0.40) 0.5px, transparent 0.5px) 38%  92% / 90px 70px,
+    radial-gradient(circle, rgba(200,200,255,0.40) 0.5px, transparent 0.5px) 55%  10% / 65px 90px;
+}
+
+[data-theme="simple"] .App {
+  background: transparent;
+}
+
+/* 헤더 */
+[data-theme="simple"] .App-header {
+  background: linear-gradient(135deg,
+    rgba(15, 10, 45, 0.97) 0%,
+    rgba(25, 18, 65, 0.97) 50%,
+    rgba(15, 10, 45, 0.97) 100%);
+  border-bottom: 1px solid rgba(255, 201, 74, 0.2);
+  box-shadow: 0 2px 24px rgba(0, 0, 0, 0.6),
+              0 0 60px rgba(255, 201, 74, 0.04);
+  backdrop-filter: blur(8px);
+}
+
+/* 헤더 텍스트 */
+[data-theme="simple"] .header-content h1 {
+  background: linear-gradient(135deg, #ffc94a 0%, #ffe599 50%, #ffc94a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 8px rgba(255, 201, 74, 0.3));
+}
+
+[data-theme="simple"] .header-content p {
+  color: #9080c0;
+}
+
+/* 테마 토글 */
+[data-theme="simple"] .theme-toggle {
+  background: rgba(255, 201, 74, 0.06);
+  border-color: rgba(255, 201, 74, 0.2);
+}
+
+[data-theme="simple"] .theme-toggle button.active {
+  background: linear-gradient(135deg, #ffc94a, #ff9a1a);
+  color: #07051a;
+  box-shadow: 0 0 12px rgba(255, 201, 74, 0.45);
+}
+
+[data-theme="simple"] .theme-toggle button:hover:not(.active) {
+  background: rgba(255, 201, 74, 0.1);
+  color: #ffc94a;
+}
+
+/* 검색 입력 */
+[data-theme="simple"] .search-row input:focus {
+  border-color: #ffc94a;
+  box-shadow: 0 0 0 3px rgba(255, 201, 74, 0.15),
+              0 0 20px rgba(255, 201, 74, 0.08);
+}
+
+/* 기본 버튼 — 골드 그라디언트 */
+[data-theme="simple"] .btn-primary {
+  background: linear-gradient(135deg, #ffc94a 0%, #ff9a1a 100%);
+  box-shadow: 0 0 18px rgba(255, 180, 40, 0.35),
+              0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="simple"] .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ffd96a 0%, #ffac3a 100%);
+  box-shadow: 0 0 28px rgba(255, 180, 40, 0.55),
+              0 6px 18px rgba(0, 0, 0, 0.5);
+  transform: translateY(-1px);
+}
+
+/* 옵션 섹션 카드 */
+[data-theme="simple"] .option-section {
+  background: rgba(15, 12, 46, 0.92);
+  border-color: rgba(255, 201, 74, 0.12);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6),
+              inset 0 1px 0 rgba(255, 201, 74, 0.06);
+}
+
+[data-theme="simple"] .option-section:hover {
+  border-color: rgba(255, 201, 74, 0.2);
+}
+
+/* 기준 옵션 레이블 */
+[data-theme="simple"] .primary-row .option-label {
+  color: #ffc94a;
+  text-shadow: 0 0 10px rgba(255, 201, 74, 0.4);
+}
+
+/* select & combobox */
+[data-theme="simple"] .option-selects select:focus,
+[data-theme="simple"] .combobox-input:focus {
+  border-color: #ffc94a;
+  box-shadow: 0 0 0 2px rgba(255, 201, 74, 0.15);
+}
+
+[data-theme="simple"] .primary-row .option-selects select {
+  border-color: rgba(255, 201, 74, 0.4);
+}
+
+[data-theme="simple"] .and-row .option-selects select {
+  border-color: rgba(192, 132, 252, 0.4);
+}
+
+/* 콤보박스 드롭다운 */
+[data-theme="simple"] .combobox-dropdown {
+  background: rgba(14, 11, 38, 0.98);
+  border-color: rgba(255, 201, 74, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8),
+              0 0 1px rgba(255, 201, 74, 0.2);
+}
+
+[data-theme="simple"] .combobox-dropdown li:hover,
+[data-theme="simple"] .combobox-dropdown li.selected {
+  background: rgba(255, 201, 74, 0.12);
+  color: #ffc94a;
+}
+
+/* 버튼 그룹 */
+[data-theme="simple"] .btn-group button.active {
+  background: rgba(255, 201, 74, 0.15);
+  color: #ffc94a;
+  font-weight: 700;
+}
+
+[data-theme="simple"] .btn-group button:hover {
+  background: rgba(255, 201, 74, 0.08);
+  color: #ffc94a;
+}
+
+/* 결과 카드 */
+[data-theme="simple"] .chart-container,
+[data-theme="simple"] .result-container {
+  background: rgba(12, 9, 36, 0.95);
+  border-color: rgba(255, 201, 74, 0.12);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.75),
+              inset 0 1px 0 rgba(255, 201, 74, 0.05);
+}
+
+/* 스와치 카드 호버 */
+[data-theme="simple"] .color-swatch-card:hover,
+[data-theme="simple"] .inline-item:hover {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7),
+              0 0 12px rgba(255, 201, 74, 0.15);
+}
+
+/* 에러 */
+[data-theme="simple"] .error-message {
+  color: #ff9090;
+  text-shadow: 0 0 8px rgba(255, 100, 100, 0.3);
+}
+
+/* ADD 조건 버튼 */
+[data-theme="simple"] .btn-add-condition:hover:not(:disabled) {
+  border-color: rgba(255, 201, 74, 0.5);
+  color: #ffc94a;
+  background: rgba(255, 201, 74, 0.05);
+}
+
+/* 페이지네이션 */
+[data-theme="simple"] .page-btn:hover:not(:disabled) {
+  background: rgba(255, 201, 74, 0.12);
+  border-color: #ffc94a;
+  color: #ffc94a;
+}
+
+/* 슬롯 레이블 primary */
+[data-theme="simple"] .slot-label-primary {
+  color: #ffc94a;
+  text-shadow: 0 0 8px rgba(255, 201, 74, 0.4);
 }
 
 /* ── 리셋 & 기본 ──────────────────────────────────────────────────────────── */
@@ -126,6 +325,11 @@ body {
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+.header-content {
+  text-align: center;
+  flex: 1;
 }
 
 .header-content h1 {
@@ -620,26 +824,16 @@ body {
 }
 
 .inline-strip {
-  display: flex;
-  flex-direction: row;
-  overflow-x: auto;
-  gap: 6px;
-  padding-bottom: 6px;
-  /* 스크롤바 스타일 */
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  display: grid;
+  grid-template-columns: repeat(var(--inline-cols, 8), 1fr);
+  gap: 8px;
 }
 
-.inline-strip::-webkit-scrollbar        { height: 5px; }
-.inline-strip::-webkit-scrollbar-track  { background: transparent; }
-.inline-strip::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 99px; }
-
 .inline-item {
-  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 58px;
+  min-width: 0;
   cursor: default;
   border-radius: 6px;
   overflow: hidden;
@@ -655,7 +849,7 @@ body {
 
 .inline-color-bar {
   width: 100%;
-  height: 72px;
+  height: 80px;
 }
 
 .inline-item-info {
@@ -668,7 +862,7 @@ body {
 }
 
 .inline-price {
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   font-weight: 700;
   color: var(--price-color);
   white-space: nowrap;
@@ -678,16 +872,24 @@ body {
 }
 
 .inline-hex {
-  font-size: 0.58rem;
+  font-size: 0.62rem;
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   color: var(--text-1);
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .inline-rgb {
-  font-size: 0.54rem;
+  font-size: 0.57rem;
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* ── 페이지네이션 ─────────────────────────────────────────────────────────── */
@@ -769,6 +971,12 @@ body {
 }
 
 /* ── 반응형 ────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .inline-strip {
+    grid-template-columns: repeat(min(var(--inline-cols, 8), 4), 1fr) !important;
+  }
+}
 
 @media (max-width: 640px) {
   .App-header {

@@ -269,25 +269,23 @@ function App() {
     if (!primaryType)     { setError('그래프 기준 옵션을 선택해주세요.'); return; }
 
     const slotBased = isSlotTyped(primaryType);
-    if (slotBased && !primarySlots[0].trim()) {
-      setError(`${primaryType}의 슬롯 1에 기준 스탯을 입력해주세요.`);
-      return;
-    }
 
     setLoading(true);
     setError(null);
     setChartData(null);
     setColorData(null);
 
-    const optionId = slotBased
-      ? buildId(primaryType, primarySlots[0].trim())
-      : buildId(primaryType, primarySubType);
+    let optionId: string;
+    let slotAnds: AndCondition[] = [];
 
-    const slotAnds: AndCondition[] = slotBased
-      ? ([1, 2] as const)
-          .filter(i => primarySlots[i].trim())
-          .map(i => ({ type: primaryType, subType: primarySlots[i].trim(), value: '' }))
-      : [];
+    if (slotBased) {
+      // 채워진 슬롯 순서대로 수집: 첫 번째 = 그래프 기준, 나머지 = AND 조건
+      const filled = primarySlots.map(s => s.trim()).filter(Boolean);
+      optionId = buildId(primaryType, filled[0] ?? '');
+      slotAnds = filled.slice(1).map(s => ({ type: primaryType, subType: s, value: '' }));
+    } else {
+      optionId = buildId(primaryType, primarySubType);
+    }
 
     const effectAnd: AndCondition[] =
       (primaryEffect.trim() && primaryType in EFFECT_FIELD_TYPES)
@@ -495,7 +493,7 @@ function App() {
                     value={primarySlots[i]}
                     onChange={v => updatePrimarySlot(i, v)}
                     suggestions={getSlotSuggestions(primaryType)}
-                    placeholder={i === 0 ? '기준 스탯 (필수)' : '추가 조건 (선택)'}
+                    placeholder="스탯 입력"
                     disabled={optionsLoading}
                     loading={i === 0 && isSlotLoading(primaryType)}
                     onFocus={() => setFocusedSlot(i)}
@@ -515,7 +513,7 @@ function App() {
                     value={primaryEffect}
                     onChange={setPrimaryEffect}
                     suggestions={getSlotSuggestions(EFFECT_FIELD_TYPES[primaryType])}
-                    placeholder="효과 필터 (선택)"
+                    placeholder="효과 입력"
                     disabled={optionsLoading}
                     loading={isSlotLoading(EFFECT_FIELD_TYPES[primaryType])}
                     onFocus={() => setEffectFocused(true)}

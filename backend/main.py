@@ -49,10 +49,15 @@ _DEFAULT_SLOT_CATEGORIES = ["검", "중갑옷", "에코스톤", "유물"]
 
 
 def _extract_stat_name(option_value: str) -> Optional[str]:
-    """'마법 공격력 20 레벨' → '마법 공격력'"""
+    """'마법 공격력 20 레벨' → '마법 공격력'
+    숫자 앞의 텍스트를 stat명으로 추출하고, 끝의 여는 괄호/공백/구분자를 제거합니다.
+    예: '그볼트 마스터리 대미지(20 레벨' → '그볼트 마스터리 대미지'
+    """
     m = re.search(r'\d+', option_value)
     if m and m.start() > 0:
-        return option_value[:m.start()].strip() or None
+        raw = option_value[:m.start()]
+        name = re.sub(r'[\s(（\[「『\-_]+$', '', raw).strip()
+        return name or None
     return None
 
 
@@ -151,11 +156,14 @@ async def get_sub_options(option_type: str):
     """
     now = time.time()
 
-    # 1. 메모리 캐시 확인
+    # 1. 메모리 캐시 확인 (여는 괄호로 끝나는 오염 데이터는 무효화)
     if option_type in _sub_options_cache:
         ts, data = _sub_options_cache[option_type]
-        if now - ts < _SUB_OPTIONS_TTL:
+        has_dirty = any(s.endswith('(') or s.endswith('（') for s in data)
+        if now - ts < _SUB_OPTIONS_TTL and not has_dirty:
             return {"stats": data}
+        # 오염됐으면 캐시 삭제 후 재조회
+        del _sub_options_cache[option_type]
 
     # 2. item_options.json의 정적 데이터 확인 (숫자가 아닌 서브타입만)
     static_subs = [

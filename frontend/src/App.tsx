@@ -367,14 +367,24 @@ function App() {
     responsive: true,
     plugins: {
       legend: { display: false },
-      title:  { display: true, text: `${resultLabel} — 색상별 최저가`, color: chartColors.text },
+      title:  { display: true, text: `${resultLabel} — 색상별 최저가 (로그 스케일)`, color: chartColors.text },
       tooltip: { callbacks: { label: (ctx: any) => fmt(ctx.parsed.y) } },
     },
     scales: {
       x: { ticks: { color: chartColors.ticks }, grid: { color: chartColors.grid } },
       y: {
-        ticks: { color: chartColors.ticks, callback: (v: any) => fmt(Number(v)) },
-        grid:  { color: chartColors.grid },
+        type: 'logarithmic' as const,
+        ticks: {
+          color: chartColors.ticks,
+          callback: (v: any) => {
+            const n = Number(v);
+            // 로그 스케일에서 10의 거듭제곱 단위만 레이블 표시
+            const log = Math.log10(n);
+            if (Math.abs(log - Math.round(log)) < 0.001) return fmt(n);
+            return '';
+          },
+        },
+        grid: { color: chartColors.grid },
       },
     },
   };

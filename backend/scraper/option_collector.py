@@ -34,11 +34,14 @@ EXCLUDED_SUBTYPES = {
 def extract_stat_name(option_value: str) -> Optional[str]:
     """
     "마법 공격력 20 레벨" → "마법 공격력"
-    숫자 이전의 텍스트를 스탯명으로 반환합니다.
+    숫자 이전의 텍스트를 스탯명으로 반환하고, 끝의 여는 괄호/구분자를 제거합니다.
+    예: "그볼트 마스터리 대미지(20 레벨" → "그볼트 마스터리 대미지"
     """
     match = re.search(r'\d+', option_value)
     if match and match.start() > 0:
-        return option_value[:match.start()].strip() or None
+        raw = option_value[:match.start()]
+        name = re.sub(r'[\s(（\[「『\-_]+$', '', raw).strip()
+        return name or None
     return None
 
 

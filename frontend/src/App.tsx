@@ -32,6 +32,12 @@ const SLOT_TYPED_OPTIONS = new Set([
 ]);
 const isSlotTyped = (t: string) => SLOT_TYPED_OPTIONS.has(t);
 
+// 슬롯 외에 별도 "효과" 필드가 필요한 타입
+// 값: 해당 효과 목록을 조회할 option_type 이름
+const EFFECT_FIELD_TYPES: Record<string, string> = {
+  '무리아스의 유물': '무리아스의 유물',
+};
+
 // ── 유틸리티 ──────────────────────────────────────────────────────────────────
 
 const hexToRgbString = (hex: string) => {
@@ -66,6 +72,7 @@ const THEME_TITLES: Record<Theme, string> = { light: '라이트', dark: '다크'
 
 const ComboboxInput = ({
   value, onChange, suggestions, placeholder, disabled, loading,
+  onFocus: onFocusProp, onBlur: onBlurProp,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -73,6 +80,8 @@ const ComboboxInput = ({
   placeholder?: string;
   disabled?: boolean;
   loading?: boolean;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }) => {
   const [open, setOpen] = useState(false);
 
@@ -89,8 +98,8 @@ const ComboboxInput = ({
         className={`combobox-input${loading ? ' loading' : ''}`}
         value={value}
         onChange={e => { onChange(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onFocus={() => { setOpen(true); onFocusProp?.(); }}
+        onBlur={() => { setTimeout(() => setOpen(false), 150); onBlurProp?.(); }}
         placeholder={loading ? '불러오는 중…' : placeholder}
         disabled={disabled || loading}
         autoComplete="off"
@@ -130,6 +139,9 @@ function App() {
   const [primaryType,    setPrimaryType]    = useState('');
   const [primarySubType, setPrimarySubType] = useState('');
   const [primarySlots,   setPrimarySlots]   = useState<[string, string, string]>(['', '', '']);
+  const [primaryEffect,  setPrimaryEffect]  = useState('');
+  const [focusedSlot,    setFocusedSlot]    = useState<number | null>(null);
+  const [effectFocused,  setEffectFocused]  = useState(false);
   const [andConditions,  setAndConditions]  = useState<AndCondition[]>([]);
 
   const [chartData,   setChartData]   = useState<any>(null);
@@ -206,6 +218,9 @@ function App() {
     setPrimaryType(t);
     setPrimarySubType((options[t] || [])[0] ?? '');
     setPrimarySlots(['', '', '']);
+    setPrimaryEffect('');
+    setFocusedSlot(null);
+    setEffectFocused(false);
   };
 
   const updatePrimarySlot = (i: 0 | 1 | 2, v: string) => {
@@ -274,7 +289,12 @@ function App() {
           .map(i => ({ type: primaryType, subType: primarySlots[i].trim(), value: '' }))
       : [];
 
-    const allAnds = [...slotAnds, ...andConditions.filter(c => c.type)];
+    const effectAnd: AndCondition[] =
+      (primaryEffect.trim() && primaryType in EFFECT_FIELD_TYPES)
+        ? [{ type: EFFECT_FIELD_TYPES[primaryType], subType: primaryEffect.trim(), value: '' }]
+        : [];
+
+    const allAnds = [...slotAnds, ...effectAnd, ...andConditions.filter(c => c.type)];
 
     const andStr = allAnds
       .map(c => {
@@ -468,8 +488,8 @@ function App() {
             <div className="slot-section">
               {([0, 1, 2] as const).map(i => (
                 <div key={i} className="slot-row">
-                  <span className={`slot-label${i === 0 ? ' slot-label-primary' : ''}`}>
-                    슬롯 {i + 1}{i === 0 ? ' ★' : ''}
+                  <span className={`slot-label${focusedSlot === i ? ' slot-label-primary' : ''}`}>
+                    슬롯 {i + 1}{focusedSlot === i ? ' ★' : ''}
                   </span>
                   <ComboboxInput
                     value={primarySlots[i]}
@@ -478,10 +498,32 @@ function App() {
                     placeholder={i === 0 ? '기준 스탯 (필수)' : '추가 조건 (선택)'}
                     disabled={optionsLoading}
                     loading={i === 0 && isSlotLoading(primaryType)}
+                    onFocus={() => setFocusedSlot(i)}
+                    onBlur={() => setFocusedSlot(null)}
                   />
                   <span className="slot-hint">{i === 0 ? '→ X축' : '→ AND'}</span>
                 </div>
               ))}
+
+              {/* 효과 필드 (무리아스의 유물 등 별도 효과 조건이 있는 타입) */}
+              {primaryType in EFFECT_FIELD_TYPES && (
+                <div className="slot-row slot-row-effect">
+                  <span className={`slot-label${effectFocused ? ' slot-label-primary' : ''}`}>
+                    효과{effectFocused ? ' ★' : ''}
+                  </span>
+                  <ComboboxInput
+                    value={primaryEffect}
+                    onChange={setPrimaryEffect}
+                    suggestions={getSlotSuggestions(EFFECT_FIELD_TYPES[primaryType])}
+                    placeholder="효과 필터 (선택)"
+                    disabled={optionsLoading}
+                    loading={isSlotLoading(EFFECT_FIELD_TYPES[primaryType])}
+                    onFocus={() => setEffectFocused(true)}
+                    onBlur={() => setEffectFocused(false)}
+                  />
+                  <span className="slot-hint">→ AND</span>
+                </div>
+              )}
             </div>
           )}
 

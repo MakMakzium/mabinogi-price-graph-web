@@ -27,7 +27,7 @@ const isColorType = (t: string) => COLOR_OPTION_TYPES.has(t);
 
 // 아이템 하나에 동일 타입이 여러 슬롯으로 붙는 옵션 타입
 const SLOT_TYPED_OPTIONS = new Set([
-  '세공 옵션', '무리아스의 유물', '에코스톤 각성 능력',
+  '세공 옵션', '무리아스 유물', '에코스톤 각성 능력',
   '사용 효과', '세트 효과', '조미료 효과',
 ]);
 const isSlotTyped = (t: string) => SLOT_TYPED_OPTIONS.has(t);
@@ -35,7 +35,7 @@ const isSlotTyped = (t: string) => SLOT_TYPED_OPTIONS.has(t);
 // 슬롯 외에 별도 "효과" 필드가 필요한 타입
 // 값: 해당 효과 목록을 조회할 option_type 이름
 const EFFECT_FIELD_TYPES: Record<string, string> = {
-  '무리아스의 유물': '무리아스의 유물',
+  '무리아스 유물': '무리아스 유물',
 };
 
 // ── 유틸리티 ──────────────────────────────────────────────────────────────────

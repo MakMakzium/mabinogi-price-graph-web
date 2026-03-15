@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,8 +23,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 옵션 목록 캐시
-_options_cache = []
+# 옵션 목록 캐시 (원본 flat 리스트)
+_options_cache: List[str] = []
+
 
 @app.on_event("startup")
 def load_options():
@@ -46,17 +48,35 @@ def read_root():
 
 
 @app.get("/options")
-def get_options():
-    """수집된 모든 고유 아이템 옵션 목록을 반환합니다."""
-    return _options_cache
+def get_options() -> Dict[str, List[str]]:
+    """
+    옵션을 타입별로 그룹핑하여 반환합니다.
+    색상 등 그래프로 의미 없는 옵션은 제외합니다.
+    예: {"세공 옵션": ["마법 공격력", "최대 공격력", ...], "에르그": ["A", "B", "S"], ...}
+    """
+    grouped: Dict[str, List[str]] = {}
+    for opt in _options_cache:
+        if '|' in opt:
+            opt_type, sub_type = opt.split('|', 1)
+            grouped.setdefault(opt_type, []).append(sub_type)
+        else:
+            grouped.setdefault(opt, [])
+    return grouped
 
 
 @app.get("/graph-data")
-async def get_graph_data_endpoint(item_name: str, option_id: str):
+async def get_graph_data_endpoint(
+    item_name: str,
+    option_id: str,
+    and_options: Optional[str] = None,
+):
     """
     특정 아이템과 옵션에 대한 가격 그래프 데이터를 반환합니다.
     - item_name: 아이템 이름 (예: "나이트브링어 인퀴지터")
-    - option_id: 옵션 식별자 (예: "마법 공격력" 또는 "세공|최대대미지레벨")
+    - option_id: 그래프 기준 옵션 (예: "세공|마법 공격력")
+    - and_options: AND 조건 옵션 목록, 콤마 구분 (예: "세공|최대 공격력,에르그")
     """
-    data = await get_price_graph_data(item_name, option_id)
+    # 구분자로 세미콜론(;) 사용 — RGB 값(0,0,0)에 콤마가 포함되므로
+    and_list = [o.strip() for o in and_options.split(';') if o.strip()] if and_options else []
+    data = await get_price_graph_data(item_name, option_id, and_list)
     return data

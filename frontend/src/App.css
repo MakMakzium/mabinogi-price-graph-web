@@ -13,74 +13,220 @@
   padding: 1rem;
 }
 
-.App-header h1 {
-    margin-bottom: 0.5rem;
-}
-
-.App-header p {
-    color: #a8b2c5;
-}
+.App-header h1 { margin-bottom: 0.5rem; }
+.App-header p  { color: #a8b2c5; }
 
 .App-main {
   width: 90%;
   max-width: 1200px;
 }
 
+/* ── 공통 컨트롤 ──────────────────────────────────────────────── */
 .controls {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
   flex-wrap: wrap;
 }
 
-.controls input,
-.controls select {
+.controls input {
   padding: 0.8rem;
   border-radius: 5px;
   border: 1px solid #4a5162;
   background-color: #3a404d;
   color: white;
   font-size: 1rem;
-}
-
-.controls input {
-    width: 350px;
-}
-
-.controls select {
-    width: 250px;
+  width: 400px;
+  max-width: 100%;
 }
 
 .controls button {
-  padding: 0.8rem 1.5rem;
+  padding: 0.8rem 2rem;
   border-radius: 5px;
   border: none;
   background-color: #61dafb;
   color: #282c34;
   font-size: 1rem;
+  font-weight: bold;
   cursor: pointer;
   transition: background-color 0.2s;
 }
 
-.controls button:disabled {
+.controls button:disabled    { background-color: #4a5162; cursor: not-allowed; }
+.controls button:hover:not(:disabled) { background-color: #4dbedb; }
+
+/* ── 옵션 섹션 ────────────────────────────────────────────────── */
+.option-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+}
+
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.option-label {
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: #a8b2c5;
+  min-width: 70px;
+  text-align: right;
+}
+
+.and-label { color: #61dafb; }
+
+.option-selects {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.option-selects select {
+  padding: 0.7rem 0.8rem;
+  border-radius: 5px;
+  border: 1px solid #4a5162;
+  background-color: #3a404d;
+  color: white;
+  font-size: 0.95rem;
+  min-width: 160px;
+}
+
+.primary-row .option-selects select { border-color: #61dafb; }
+.and-row     .option-selects select { border-color: #4a90d9; }
+
+/* ── 색상 피커 (AND 조건) ─────────────────────────────────────── */
+.color-picker-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.color-picker-inline input[type="color"] {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 2px;
+  background: #3a404d;
+}
+
+.color-rgb-label {
+  font-size: 0.8rem;
+  color: #a8b2c5;
+  font-family: monospace;
+}
+
+/* ── AND 조건 버튼 ────────────────────────────────────────────── */
+.btn-add-condition {
+  margin-top: 0.3rem;
+  padding: 0.5rem 1.2rem;
+  border-radius: 5px;
+  border: 1px dashed #4a5162;
+  background-color: transparent;
+  color: #a8b2c5;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-add-condition:hover:not(:disabled) { border-color: #61dafb; color: #61dafb; }
+.btn-add-condition:disabled             { opacity: 0.4; cursor: not-allowed; }
+
+.btn-remove {
+  padding: 0.4rem 0.7rem;
+  border-radius: 5px;
+  border: none;
   background-color: #4a5162;
-  cursor: not-allowed;
+  color: #a8b2c5;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
 }
 
-.controls button:hover:not(:disabled) {
-  background-color: #4dbedb;
-}
+.btn-remove:hover { background-color: #c0392b; color: white; }
 
+/* ── 결과 컨테이너 ────────────────────────────────────────────── */
+.result-container,
 .chart-container {
   background-color: #fff;
   padding: 1.5rem;
   border-radius: 8px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  margin-top: 1rem;
+  color: #282c34;
 }
 
 .error-message {
-    color: #ff6b6b;
-    font-weight: bold;
+  color: #ff6b6b;
+  font-weight: bold;
+}
+
+/* ── 색상 그래프 ──────────────────────────────────────────────── */
+.color-chart-title {
+  font-size: 1rem;
+  color: #3a404d;
+  margin-bottom: 1.2rem;
+  word-break: break-all;
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.75rem;
+}
+
+.color-swatch-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fafafa;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.color-swatch-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.color-swatch-box {
+  width: 100%;
+  height: 70px;
+}
+
+.color-swatch-info {
+  padding: 0.5rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.color-hex {
+  font-family: monospace;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: #333;
+}
+
+.color-rgb {
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: #777;
+}
+
+.color-price {
+  font-size: 0.78rem;
+  font-weight: bold;
+  color: #e74c3c;
+  margin-top: 0.2rem;
 }

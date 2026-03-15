@@ -1,13 +1,20 @@
 """
 경매장 카테고리를 순회하며 고유한 아이템 옵션 목록을 수집합니다.
 봇의 api.py 구조를 참고하여 NEXON_API_KEYS 복수 키 순환을 지원합니다.
+
+세공 옵션 처리:
+  API에서는 option_type="세공 옵션", option_sub_type="1"/"2"/"3",
+  option_value="마법 공격력 20 레벨" 형태로 옵니다.
+  슬롯 번호는 의미 없으므로 option_value에서 스탯명을 추출하여
+  "세공 옵션|마법 공격력" 형태로 저장합니다.
 """
 import asyncio
 import gc
 import json
 import os
+import re
 import sys
-from typing import Set
+from typing import Optional, Set
 
 import aiohttp
 
@@ -17,6 +24,29 @@ from api_client import get_headers
 
 # 동시 요청 수 제한 (메모리 및 속도 제한 방지)
 MAX_CONCURRENT_TASKS = 3
+
+# option_value를 텍스트로만 처리하는 옵션 타입 목록 (슬롯 번호를 sub_type으로 쓰는 타입)
+# → sub_type 대신 option_value의 텍스트 앞부분을 stat_name으로 수집
+VALUE_AS_SUBTYPE_TYPES = {"세공 옵션"}
+
+# 수집 제외 옵션 타입 (현재 없음)
+EXCLUDED_TYPES: set = set()
+
+# 수집 제외 서브타입 (텍스트 전용 값 — 숫자 수치가 없어서 그래프 불가)
+EXCLUDED_SUBTYPES = {
+    "종족명", "전용 파우치 (아래쪽)", "전용 파우치 (오른쪽)",
+}
+
+
+def extract_stat_name(option_value: str) -> Optional[str]:
+    """
+    "마법 공격력 20 레벨" → "마법 공격력"
+    숫자가 없거나 텍스트 없이 숫자만 오면 None 반환.
+    """
+    match = re.search(r'\d+', option_value)
+    if match and match.start() > 0:
+        return option_value[:match.start()].strip() or None
+    return None
 
 
 def load_categories() -> list:
@@ -55,7 +85,6 @@ async def worker_collect_options(
                         items_on_page = data.get("auction_item", [])
 
                         if not items_on_page:
-                            print(f"  - '{category}' 더 이상 아이템 없음.")
                             break
 
                         item_count += len(items_on_page)
@@ -64,15 +93,33 @@ async def worker_collect_options(
                             for option in (item.get("item_option") or []):
                                 opt_type = option.get("option_type")
                                 opt_sub_type = option.get("option_sub_type")
+
                                 if not opt_type:
                                     continue
+
+                                # 색상 등 그래프 불가 타입 제외
+                                if opt_type in EXCLUDED_TYPES:
+                                    continue
+
+                                # 세공 옵션처럼 슬롯 번호가 sub_type인 경우 → stat_name 추출
+                                if opt_type in VALUE_AS_SUBTYPE_TYPES:
+                                    stat_name = extract_stat_name(
+                                        str(option.get("option_value", ""))
+                                    )
+                                    if stat_name:
+                                        category_options.add(f"{opt_type}|{stat_name}")
+                                    continue
+
+                                # 색상 파트 등 의미 없는 서브타입 제외
+                                if opt_sub_type and opt_sub_type in EXCLUDED_SUBTYPES:
+                                    continue
+
                                 if opt_sub_type and str(opt_sub_type).lower() != 'none':
                                     category_options.add(f"{opt_type}|{opt_sub_type}")
                                 else:
                                     category_options.add(opt_type)
 
                         if len(items_on_page) < 500:
-                            print(f"  - '{category}' 수집 완료.")
                             break
 
                         del items_on_page, data

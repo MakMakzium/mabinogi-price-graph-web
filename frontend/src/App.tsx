@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import {
   Chart as ChartJS,
@@ -25,14 +25,10 @@ const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:800
 const COLOR_OPTION_TYPES = new Set(['아이템 색상', '색상']);
 const isColorType = (t: string) => COLOR_OPTION_TYPES.has(t);
 
-// 슬롯 번호(1/2/3)로 나뉘는 다중 인스턴스 옵션 타입
-// 아이템 하나에 동일 타입이 여러 슬롯으로 붙을 수 있어 3개 필드로 입력
+// 아이템 하나에 동일 타입이 여러 슬롯으로 붙는 옵션 타입
 const SLOT_TYPED_OPTIONS = new Set([
-  '세공 옵션',
-  '무리아스의 유물',
-  '사용 효과',
-  '세트 효과',
-  '조미료 효과',
+  '세공 옵션', '무리아스의 유물', '에코스톤 각성 능력',
+  '사용 효과', '세트 효과', '조미료 효과',
 ]);
 const isSlotTyped = (t: string) => SLOT_TYPED_OPTIONS.has(t);
 
@@ -57,7 +53,7 @@ const fmt = (p: number) => p.toLocaleString('ko-KR') + '원';
 
 type Theme      = 'dark' | 'light' | 'simple';
 type OptionsMap = { [type: string]: string[] };
-type ColorView  = 'swatch' | 'bar';
+type ColorView  = 'inline' | 'swatch' | 'bar';
 type SortDir    = 'asc' | 'desc';
 
 interface AndCondition { type: string; subType: string; value: string; }
@@ -69,13 +65,14 @@ const THEME_TITLES: Record<Theme, string> = { light: '라이트', dark: '다크'
 // ── 콤보박스 컴포넌트 ──────────────────────────────────────────────────────────
 
 const ComboboxInput = ({
-  value, onChange, suggestions, placeholder, disabled,
+  value, onChange, suggestions, placeholder, disabled, loading,
 }: {
   value: string;
   onChange: (v: string) => void;
   suggestions: string[];
   placeholder?: string;
   disabled?: boolean;
+  loading?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
 
@@ -89,18 +86,18 @@ const ComboboxInput = ({
     <div className="combobox-wrap">
       <input
         type="text"
-        className="combobox-input"
+        className={`combobox-input${loading ? ' loading' : ''}`}
         value={value}
         onChange={e => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder={placeholder}
-        disabled={disabled}
+        placeholder={loading ? '불러오는 중…' : placeholder}
+        disabled={disabled || loading}
         autoComplete="off"
       />
-      {open && !disabled && filtered.length > 0 && (
+      {open && !disabled && !loading && filtered.length > 0 && (
         <ul className="combobox-dropdown">
-          {filtered.slice(0, 30).map(s => (
+          {filtered.slice(0, 40).map(s => (
             <li
               key={s}
               className={s === value ? 'selected' : ''}
@@ -125,10 +122,13 @@ function App() {
   const [options,        setOptions]        = useState<OptionsMap>({});
   const [optionsLoading, setOptionsLoading] = useState(true);
 
+  // 슬롯 타입 서브옵션 (Nexon API 라이브 조회 결과)
+  const [slotStats,   setSlotStats]   = useState<Record<string, string[]>>({});
+  const fetchingRef = useRef<Set<string>>(new Set());
+
   const [itemName,       setItemName]       = useState('');
   const [primaryType,    setPrimaryType]    = useState('');
   const [primarySubType, setPrimarySubType] = useState('');
-  // 슬롯 타입용 3개 입력 필드 (인덱스 0 = 그래프 기준, 1·2 = AND 조건)
   const [primarySlots,   setPrimarySlots]   = useState<[string, string, string]>(['', '', '']);
   const [andConditions,  setAndConditions]  = useState<AndCondition[]>([]);
 
@@ -136,14 +136,17 @@ function App() {
   const [colorData,   setColorData]   = useState<ColorEntry[] | null>(null);
   const [resultLabel, setResultLabel] = useState('');
 
-  const [colorView, setColorView] = useState<ColorView>('swatch');
-  const [sortDir,   setSortDir]   = useState<SortDir>('asc');
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState<string | null>(null);
+  const [colorView,     setColorView]     = useState<ColorView>('inline');
+  const [sortDir,       setSortDir]       = useState<SortDir>('asc');
+  const [inlinePage,    setInlinePage]    = useState(1);
+  const [inlinePageSize, setInlinePageSize] = useState(20);
+
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
 
   const optionTypes = Object.keys(options).sort();
 
-  // ── 테마 적용 ──────────────────────────────────────────────────────────────
+  // ── 테마 ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('mabi-theme', theme);
@@ -165,7 +168,33 @@ function App() {
       .finally(() => setOptionsLoading(false));
   }, []);
 
-  // ── 차트 테마 색상 ─────────────────────────────────────────────────────────
+  // ── 슬롯 타입 서브옵션 조회 ────────────────────────────────────────────────
+  const fetchSlotStats = (optionType: string) => {
+    if (!optionType) return;
+    if (slotStats[optionType] !== undefined) return;
+    if (fetchingRef.current.has(optionType)) return;
+    fetchingRef.current.add(optionType);
+
+    axios.get(`${API_BASE_URL}/sub-options`, { params: { option_type: optionType } })
+      .then(res => setSlotStats(prev => ({ ...prev, [optionType]: res.data.stats || [] })))
+      .catch(() => setSlotStats(prev => ({ ...prev, [optionType]: [] })))
+      .finally(() => fetchingRef.current.delete(optionType));
+  };
+
+  useEffect(() => {
+    if (isSlotTyped(primaryType)) fetchSlotStats(primaryType);
+  }, [primaryType]); // eslint-disable-line
+
+  useEffect(() => {
+    andConditions.forEach(c => {
+      if (isSlotTyped(c.type)) fetchSlotStats(c.type);
+    });
+  }, [andConditions]); // eslint-disable-line
+
+  // ── 페이지 리셋 ─────────────────────────────────────────────────────────────
+  useEffect(() => { setInlinePage(1); }, [colorData, sortDir, inlinePageSize]);
+
+  // ── 차트 테마 ───────────────────────────────────────────────────────────────
   const chartColors = useMemo(() => theme === 'dark'
     ? { text: '#c8d0e0', grid: 'rgba(255,255,255,0.07)', ticks: '#7d8ba5' }
     : { text: '#1a2235', grid: 'rgba(0,0,0,0.07)',       ticks: '#4b5a6e' }
@@ -235,7 +264,6 @@ function App() {
     setChartData(null);
     setColorData(null);
 
-    // 슬롯 타입: 슬롯 1 → option_id, 슬롯 2·3 → 내부 AND 조건
     const optionId = slotBased
       ? buildId(primaryType, primarySlots[0].trim())
       : buildId(primaryType, primarySubType);
@@ -272,10 +300,8 @@ function App() {
     })
       .then(res => {
         if (res.data.error) { setError(res.data.error); return; }
-
         const label = `${res.data.item_name} / ${condLabel}`;
         setResultLabel(label);
-
         if (res.data.type === 'color') {
           setColorData(res.data.colors);
         } else {
@@ -297,10 +323,18 @@ function App() {
       .finally(() => setLoading(false));
   };
 
-  // ── 색상 정렬 ─────────────────────────────────────────────────────────────
-  const sortedColors = colorData
-    ? [...colorData].sort((a, b) => sortDir === 'asc' ? a.price - b.price : b.price - a.price)
-    : [];
+  // ── 색상 정렬 & 페이지네이션 ───────────────────────────────────────────────
+  const sortedColors = useMemo(() =>
+    colorData
+      ? [...colorData].sort((a, b) => sortDir === 'asc' ? a.price - b.price : b.price - a.price)
+      : []
+  , [colorData, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedColors.length / inlinePageSize));
+  const pagedColors = sortedColors.slice(
+    (inlinePage - 1) * inlinePageSize,
+    inlinePage * inlinePageSize,
+  );
 
   const colorBarData = sortedColors.length > 0 ? {
     labels: sortedColors.map(e => `(${e.r},${e.g},${e.b})`),
@@ -348,8 +382,7 @@ function App() {
   // ── 서브컴포넌트 ──────────────────────────────────────────────────────────
   const SubTypeSelect = ({ type, subType, onChange, disabled }: {
     type: string; subType: string;
-    onChange: (v: string) => void;
-    disabled?: boolean;
+    onChange: (v: string) => void; disabled?: boolean;
   }) => {
     const subs = options[type] || [];
     if (subs.length === 0) return null;
@@ -359,6 +392,12 @@ function App() {
       </select>
     );
   };
+
+  // 슬롯 타입 콤보박스 suggestions: 라이브 조회 결과 우선, 없으면 정적 옵션
+  const getSlotSuggestions = (t: string) =>
+    (slotStats[t] && slotStats[t].length > 0) ? slotStats[t] : (options[t] || []);
+  const isSlotLoading = (t: string) =>
+    fetchingRef.current.has(t) && !slotStats[t];
 
   // ── 렌더 ──────────────────────────────────────────────────────────────────
   return (
@@ -400,7 +439,7 @@ function App() {
         {/* 옵션 선택 */}
         <div className="option-section">
 
-          {/* 기준 옵션 — 타입 선택 */}
+          {/* 기준 옵션 타입 선택 */}
           <div className="option-row primary-row">
             <span className="option-label">그래프 기준</span>
             <div className="option-selects">
@@ -419,18 +458,18 @@ function App() {
             <div className="slot-section">
               {([0, 1, 2] as const).map(i => (
                 <div key={i} className="slot-row">
-                  <span className={`option-label slot-label${i === 0 ? ' slot-label-primary' : ''}`}>
+                  <span className={`slot-label${i === 0 ? ' slot-label-primary' : ''}`}>
                     슬롯 {i + 1}{i === 0 ? ' ★' : ''}
                   </span>
                   <ComboboxInput
                     value={primarySlots[i]}
                     onChange={v => updatePrimarySlot(i, v)}
-                    suggestions={options[primaryType] || []}
+                    suggestions={getSlotSuggestions(primaryType)}
                     placeholder={i === 0 ? '기준 스탯 (필수)' : '추가 조건 (선택)'}
                     disabled={optionsLoading}
+                    loading={i === 0 && isSlotLoading(primaryType)}
                   />
-                  {i === 0 && <span className="slot-hint">→ 그래프 X축</span>}
-                  {i > 0  && <span className="slot-hint">→ AND 조건</span>}
+                  <span className="slot-hint">{i === 0 ? '→ X축' : '→ AND'}</span>
                 </div>
               ))}
             </div>
@@ -445,20 +484,19 @@ function App() {
                   {optionTypes.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
 
-                {/* 슬롯 타입 AND: 콤보박스 */}
                 {isSlotTyped(cond.type) ? (
                   <ComboboxInput
                     value={cond.subType}
                     onChange={v => updateAndCond(i, 'subType', v)}
-                    suggestions={options[cond.type] || []}
+                    suggestions={getSlotSuggestions(cond.type)}
                     placeholder="스탯 입력"
                     disabled={optionsLoading}
+                    loading={isSlotLoading(cond.type)}
                   />
                 ) : (
                   <SubTypeSelect type={cond.type} subType={cond.subType} onChange={v => updateAndCond(i, 'subType', v)} />
                 )}
 
-                {/* 색상 타입 AND: 컬러피커 */}
                 {isColorType(cond.type) && (
                   <div className="color-picker-inline">
                     <input
@@ -495,10 +533,12 @@ function App() {
         {/* 색상 결과 */}
         {colorData && colorData.length > 0 && (
           <div className="chart-container">
+            {/* 색상 결과 컨트롤 */}
             <div className="color-controls">
               <span className="color-result-title">{resultLabel}</span>
               <div className="color-control-btns">
                 <div className="btn-group">
+                  <button className={colorView === 'inline' ? 'active' : ''} onClick={() => setColorView('inline')}>인라인</button>
                   <button className={colorView === 'swatch' ? 'active' : ''} onClick={() => setColorView('swatch')}>스와치</button>
                   <button className={colorView === 'bar'    ? 'active' : ''} onClick={() => setColorView('bar')}>그래프</button>
                 </div>
@@ -509,6 +549,50 @@ function App() {
               </div>
             </div>
 
+            {/* 인라인 뷰 */}
+            {colorView === 'inline' && (
+              <div className="inline-view">
+                <div className="inline-strip">
+                  {pagedColors.map((e, i) => (
+                    <div key={i} className="inline-item">
+                      <div className="inline-color-bar" style={{ backgroundColor: e.hex }} />
+                      <div className="inline-item-info">
+                        <span className="inline-price">{fmt(e.price)}</span>
+                        <span className="inline-hex">{e.hex.toUpperCase()}</span>
+                        <span className="inline-rgb">({e.r},{e.g},{e.b})</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="pagination">
+                  <button
+                    className="page-btn"
+                    onClick={() => setInlinePage(p => Math.max(1, p - 1))}
+                    disabled={inlinePage === 1}
+                  >‹</button>
+                  <span className="page-info">
+                    {inlinePage} / {totalPages}
+                    <span className="page-total"> ({sortedColors.length}개)</span>
+                  </span>
+                  <button
+                    className="page-btn"
+                    onClick={() => setInlinePage(p => Math.min(totalPages, p + 1))}
+                    disabled={inlinePage === totalPages}
+                  >›</button>
+                  <select
+                    className="page-size-select"
+                    value={inlinePageSize}
+                    onChange={e => setInlinePageSize(Number(e.target.value))}
+                  >
+                    {[10, 20, 50, 100].map(n => (
+                      <option key={n} value={n}>{n}개씩</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* 스와치 뷰 */}
             {colorView === 'swatch' && (
               <div className="color-grid">
                 {sortedColors.map((e, i) => (
@@ -524,6 +608,7 @@ function App() {
               </div>
             )}
 
+            {/* 바 차트 뷰 */}
             {colorView === 'bar' && colorBarData && (
               <Bar options={barOptions} data={colorBarData} />
             )}

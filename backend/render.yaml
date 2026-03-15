@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: mabinogi-price-graph-api
+    runtime: python
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: NEXON_API_KEY
+        sync: false        # Render 대시보드에서 직접 입력 (코드에 노출 안 됨)
+      - key: ALLOWED_ORIGINS
+        sync: false        # 나중에 Netlify 주소 확정되면 입력

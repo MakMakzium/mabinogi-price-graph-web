@@ -1,0 +1,86 @@
+.App {
+  text-align: center;
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: white;
+}
+
+.App-header {
+  margin-bottom: 2rem;
+  padding: 1rem;
+}
+
+.App-header h1 {
+    margin-bottom: 0.5rem;
+}
+
+.App-header p {
+    color: #a8b2c5;
+}
+
+.App-main {
+  width: 90%;
+  max-width: 1200px;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.controls input,
+.controls select {
+  padding: 0.8rem;
+  border-radius: 5px;
+  border: 1px solid #4a5162;
+  background-color: #3a404d;
+  color: white;
+  font-size: 1rem;
+}
+
+.controls input {
+    width: 350px;
+}
+
+.controls select {
+    width: 250px;
+}
+
+.controls button {
+  padding: 0.8rem 1.5rem;
+  border-radius: 5px;
+  border: none;
+  background-color: #61dafb;
+  color: #282c34;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.controls button:disabled {
+  background-color: #4a5162;
+  cursor: not-allowed;
+}
+
+.controls button:hover:not(:disabled) {
+  background-color: #4dbedb;
+}
+
+.chart-container {
+  background-color: #fff;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.error-message {
+    color: #ff6b6b;
+    font-weight: bold;
+}

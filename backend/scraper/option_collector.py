@@ -1,12 +1,12 @@
 """
 경매장 카테고리를 순회하며 고유한 아이템 옵션 목록을 수집합니다.
-봇의 api.py 구조를 참고하여 NEXON_API_KEYS 복수 키 순환을 지원합니다.
 
-세공 옵션 처리:
-  API에서는 option_type="세공 옵션", option_sub_type="1"/"2"/"3",
-  option_value="마법 공격력 20 레벨" 형태로 옵니다.
-  슬롯 번호는 의미 없으므로 option_value에서 스탯명을 추출하여
-  "세공 옵션|마법 공격력" 형태로 저장합니다.
+서브타입 처리 규칙:
+  - option_sub_type이 순수 숫자(슬롯 번호)인 경우
+    → 슬롯 번호는 의미 없으므로 option_value 텍스트 앞부분을 스탯명으로 추출
+    → "세공 옵션|1" (X)  →  "세공 옵션|마법 공격력" (O)
+    → 이 규칙은 세공 옵션, 사용 효과, 세트 효과, 조미료 효과 등 모든 숫자-슬롯 타입에 자동 적용됨
+  - 그 외: option_sub_type 그대로 사용
 """
 import asyncio
 import gc
@@ -18,30 +18,23 @@ from typing import Optional, Set
 
 import aiohttp
 
-# 상위 디렉터리(backend/)를 import 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api_client import get_headers
 
-# 동시 요청 수 제한 (메모리 및 속도 제한 방지)
 MAX_CONCURRENT_TASKS = 3
 
-# option_value를 텍스트로만 처리하는 옵션 타입 목록 (슬롯 번호를 sub_type으로 쓰는 타입)
-# → sub_type 대신 option_value의 텍스트 앞부분을 stat_name으로 수집
-VALUE_AS_SUBTYPE_TYPES = {"세공 옵션"}
-
-# 수집 제외 옵션 타입 (현재 없음)
-EXCLUDED_TYPES: set = set()
-
-# 수집 제외 서브타입 (텍스트 전용 값 — 숫자 수치가 없어서 그래프 불가)
+# 그래프 불가 서브타입 (텍스트 전용 — 숫자 수치 없음)
 EXCLUDED_SUBTYPES = {
-    "종족명", "전용 파우치 (아래쪽)", "전용 파우치 (오른쪽)",
+    "종족명",
+    "전용 파우치 (아래쪽)",
+    "전용 파우치 (오른쪽)",
 }
 
 
 def extract_stat_name(option_value: str) -> Optional[str]:
     """
     "마법 공격력 20 레벨" → "마법 공격력"
-    숫자가 없거나 텍스트 없이 숫자만 오면 None 반환.
+    숫자 이전의 텍스트를 스탯명으로 반환합니다.
     """
     match = re.search(r'\d+', option_value)
     if match and match.start() > 0:
@@ -50,14 +43,14 @@ def extract_stat_name(option_value: str) -> Optional[str]:
 
 
 def load_categories() -> list:
-    category_file_path = os.path.join(os.path.dirname(__file__), "category.txt")
+    path = os.path.join(os.path.dirname(__file__), "category.txt")
     try:
-        with open(category_file_path, "r", encoding="utf-8") as f:
-            categories = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-        print(f"카테고리 {len(categories)}개 로드 완료.")
-        return categories
+        with open(path, "r", encoding="utf-8") as f:
+            cats = [l.strip() for l in f if l.strip() and not l.startswith('#')]
+        print(f"카테고리 {len(cats)}개 로드 완료.")
+        return cats
     except FileNotFoundError:
-        print(f"[Error] 카테고리 파일 '{category_file_path}'을 찾을 수 없습니다.")
+        print(f"[Error] 카테고리 파일을 찾을 수 없습니다: {path}")
         return []
 
 
@@ -66,107 +59,97 @@ async def worker_collect_options(
     category: str,
     semaphore: asyncio.Semaphore,
 ) -> Set[str]:
-    """카테고리 내 모든 페이지를 순회하며 고유 옵션을 수집합니다."""
     async with semaphore:
         print(f"카테고리 '{category}' 수집 시작...")
-        category_options: Set[str] = set()
+        opts: Set[str] = set()
         item_count = 0
-        current_page = 0
+        page = 0
 
         while True:
-            current_page += 1
-            url = "https://open.api.nexon.com/mabinogi/v1/auction/list"
-            params = {"first_category": category, "page": current_page}
+            page += 1
+            params = {"first_category": category, "page": page}
 
             try:
-                async with session.get(url, headers=get_headers(), params=params) as resp:
+                async with session.get(
+                    "https://open.api.nexon.com/mabinogi/v1/auction/list",
+                    headers=get_headers(),
+                    params=params,
+                ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        items_on_page = data.get("auction_item", [])
-
-                        if not items_on_page:
+                        items = data.get("auction_item", [])
+                        if not items:
                             break
 
-                        item_count += len(items_on_page)
+                        item_count += len(items)
 
-                        for item in items_on_page:
-                            for option in (item.get("item_option") or []):
-                                opt_type = option.get("option_type")
-                                opt_sub_type = option.get("option_sub_type")
+                        for item in items:
+                            for opt in (item.get("item_option") or []):
+                                opt_type = opt.get("option_type")
+                                opt_sub  = opt.get("option_sub_type")
 
                                 if not opt_type:
                                     continue
-
-                                # 색상 등 그래프 불가 타입 제외
-                                if opt_type in EXCLUDED_TYPES:
+                                if opt_sub and opt_sub in EXCLUDED_SUBTYPES:
                                     continue
 
-                                # 세공 옵션처럼 슬롯 번호가 sub_type인 경우 → stat_name 추출
-                                if opt_type in VALUE_AS_SUBTYPE_TYPES:
-                                    stat_name = extract_stat_name(
-                                        str(option.get("option_value", ""))
-                                    )
-                                    if stat_name:
-                                        category_options.add(f"{opt_type}|{stat_name}")
+                                # sub_type이 순수 숫자(슬롯 번호)이면
+                                # option_value에서 스탯명 추출
+                                if opt_sub and str(opt_sub).strip().isdigit():
+                                    stat = extract_stat_name(str(opt.get("option_value", "")))
+                                    if stat:
+                                        opts.add(f"{opt_type}|{stat}")
                                     continue
 
-                                # 색상 파트 등 의미 없는 서브타입 제외
-                                if opt_sub_type and opt_sub_type in EXCLUDED_SUBTYPES:
-                                    continue
-
-                                if opt_sub_type and str(opt_sub_type).lower() != 'none':
-                                    category_options.add(f"{opt_type}|{opt_sub_type}")
+                                if opt_sub and str(opt_sub).lower() != "none":
+                                    opts.add(f"{opt_type}|{opt_sub}")
                                 else:
-                                    category_options.add(opt_type)
+                                    opts.add(opt_type)
 
-                        if len(items_on_page) < 500:
+                        if len(items) < 500:
                             break
 
-                        del items_on_page, data
+                        del items, data
                         await asyncio.sleep(0.1)
 
                     elif resp.status == 429:
-                        print(f"  속도 제한 초과 - '{category}' 페이지 {current_page}. 5초 후 재시도...")
+                        print(f"  속도 제한 - '{category}' p{page}, 5초 대기")
                         await asyncio.sleep(5)
-                        current_page -= 1
-                        continue
-
+                        page -= 1
                     else:
-                        print(f"  - '{category}' 페이지 {current_page} 오류: 상태 {resp.status}")
+                        print(f"  오류 - '{category}' p{page}: {resp.status}")
                         break
 
             except Exception as e:
-                print(f"  - '{category}' 페이지 {current_page} 예외: {e}")
+                print(f"  예외 - '{category}' p{page}: {e}")
                 break
 
-        print(f"카테고리 '{category}': 아이템 {item_count}개, 고유 옵션 {len(category_options)}개")
+        print(f"'{category}': 아이템 {item_count}개, 옵션 {len(opts)}개")
         gc.collect()
-        return category_options
+        return opts
 
 
 async def collect_all_options():
-    """모든 카테고리에서 고유 옵션을 수집하고 item_options.json에 저장합니다."""
-    final_unique_options: Set[str] = set()
-    categories = load_categories()
-    if not categories:
-        print("수집할 카테고리가 없습니다.")
+    final: Set[str] = set()
+    cats = load_categories()
+    if not cats:
         return
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
-    connector = aiohttp.TCPConnector(limit=MAX_CONCURRENT_TASKS, force_close=True)
+    sem = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+    conn = aiohttp.TCPConnector(limit=MAX_CONCURRENT_TASKS, force_close=True)
 
-    async with aiohttp.ClientSession(connector=connector) as session:
-        tasks = [worker_collect_options(session, cat, semaphore) for cat in categories]
-        results = await asyncio.gather(*tasks)
-        for opts in results:
-            final_unique_options.update(opts)
+    async with aiohttp.ClientSession(connector=conn) as session:
+        results = await asyncio.gather(*[
+            worker_collect_options(session, c, sem) for c in cats
+        ])
+        for r in results:
+            final.update(r)
 
-    print(f"\n전체 고유 옵션: {len(final_unique_options)}개")
-
-    output_path = os.path.join(os.path.dirname(__file__), "item_options.json")
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(sorted(final_unique_options), f, ensure_ascii=False, indent=2)
-    print(f"'{output_path}'에 저장 완료.")
+    print(f"\n전체 고유 옵션: {len(final)}개")
+    out = os.path.join(os.path.dirname(__file__), "item_options.json")
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(sorted(final), f, ensure_ascii=False, indent=2)
+    print(f"저장 완료: {out}")
 
 
 if __name__ == "__main__":

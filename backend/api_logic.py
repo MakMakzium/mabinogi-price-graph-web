@@ -134,38 +134,66 @@ def _find_numeric_value(
 
 # ── Nexon API 호출 ─────────────────────────────────────────────────────────────
 
-async def search_items_by_categories(
+async def _fetch_category_page(
     session: aiohttp.ClientSession,
-    categories: List[str],
+    category: str,
+    page: int,
+    sem: asyncio.Semaphore,
 ) -> List[Dict[str, Any]]:
-    """카테고리 목록으로 전체 아이템을 검색합니다 (아이템 이름 없이 조회 시 사용)."""
-    all_items: List[Dict[str, Any]] = []
     url = "https://open.api.nexon.com/mabinogi/v1/auction/list"
-
-    for category in categories:
-        page = 1
-        while True:
+    async with sem:
+        for attempt in range(3):
             try:
                 async with session.get(
                     url, headers=get_headers(),
                     params={"first_category": category, "page": page},
                 ) as resp:
                     if resp.status == 429:
-                        await asyncio.sleep(3)
+                        await asyncio.sleep(2 ** attempt)
                         continue
                     if resp.status != 200:
-                        break
+                        return []
                     data = await resp.json()
-                    items = data.get("auction_item", [])
-                    if not items:
-                        break
-                    all_items.extend(items)
-                    if len(items) < 500:
-                        break
-                    page += 1
-                    await asyncio.sleep(0.1)
+                    return data.get("auction_item", [])
             except Exception as e:
                 print(f"[category search] {category} p{page}: {e}", flush=True)
+        return []
+
+
+async def search_items_by_categories(
+    session: aiohttp.ClientSession,
+    categories: List[str],
+) -> List[Dict[str, Any]]:
+    """카테고리 목록으로 전체 아이템을 검색합니다. 페이지를 병렬로 fetch합니다."""
+    all_items: List[Dict[str, Any]] = []
+    url = "https://open.api.nexon.com/mabinogi/v1/auction/list"
+    sem = asyncio.Semaphore(5)  # 동시 요청 최대 5개
+
+    for category in categories:
+        # 1페이지를 먼저 받아 전체 페이지 수 추정
+        first_page = await _fetch_category_page(session, category, 1, sem)
+        if not first_page:
+            continue
+        all_items.extend(first_page)
+        if len(first_page) < 500:
+            continue
+
+        # 2페이지부터 병렬 fetch (최대 40페이지 = 20,000개)
+        page = 2
+        while True:
+            pages_to_fetch = list(range(page, page + 5))
+            tasks = [_fetch_category_page(session, category, p, sem) for p in pages_to_fetch]
+            results = await asyncio.gather(*tasks)
+
+            done = False
+            for items in results:
+                all_items.extend(items)
+                if len(items) < 500:
+                    done = True
+                    break
+
+            page += 5
+            if done or page > 41:
                 break
 
     return all_items

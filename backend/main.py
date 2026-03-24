@@ -59,6 +59,11 @@ _EMPTY_SEARCH_CATEGORIES: Dict[str, List[str]] = {
     "색상":   ["염색 앰플"],
 }
 
+# 아이템 이름 없이 검색 시 자동으로 사용할 고정 아이템명
+_FIXED_ITEM_NAMES: Dict[str, str] = {
+    "무리아스 유물": "무리아스의 유물",
+}
+
 
 def _extract_stat_name(option_value: str) -> Optional[str]:
     """'마법 공격력 20 레벨' → '마법 공격력'
@@ -264,15 +269,20 @@ async def get_graph_data_endpoint(
     and_list = [o.strip() for o in and_options.split(';') if o.strip()] if and_options else []
 
     categories: Optional[List[str]] = None
+    resolved_name = item_name.strip()
+
     if category.strip():
         # 명시적 카테고리 검색
         categories = [category.strip()]
-    elif not item_name.strip():
-        # 이름도 카테고리도 없으면 허용된 타입(인챈트·색상)인지 확인
+    elif not resolved_name:
+        # 이름도 카테고리도 없으면 고정 아이템명 또는 허용된 카테고리 타입 확인
         opt_type = option_id.split('|')[0]
-        categories = _EMPTY_SEARCH_CATEGORIES.get(opt_type)
-        if not categories:
-            return {"error": "이 옵션 타입은 아이템 이름 또는 카테고리가 필요합니다."}
+        if opt_type in _FIXED_ITEM_NAMES:
+            resolved_name = _FIXED_ITEM_NAMES[opt_type]
+        else:
+            categories = _EMPTY_SEARCH_CATEGORIES.get(opt_type)
+            if not categories:
+                return {"error": "이 옵션 타입은 아이템 이름 또는 카테고리가 필요합니다."}
 
-    data = await get_price_graph_data(item_name.strip(), option_id, and_list, categories=categories)
+    data = await get_price_graph_data(resolved_name, option_id, and_list, categories=categories)
     return data

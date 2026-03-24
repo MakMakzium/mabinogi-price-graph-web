@@ -26,8 +26,8 @@ const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:800
 const COLOR_OPTION_TYPES = new Set(['아이템 색상', '색상']);
 const isColorType = (t: string) => COLOR_OPTION_TYPES.has(t);
 
-// 아이템 이름 없이 검색 가능한 타입 (카테고리 전체 조회)
-const EMPTY_SEARCH_ALLOWED = new Set(['인챈트', '색상']);
+// 아이템 이름 없이 검색 가능한 타입 (카테고리 전체 조회 또는 고정 아이템명 자동 사용)
+const EMPTY_SEARCH_ALLOWED = new Set(['인챈트', '색상', '무리아스 유물']);
 
 // 아이템 하나에 동일 타입이 여러 슬롯으로 붙는 옵션 타입
 const SLOT_TYPED_OPTIONS = new Set([
@@ -65,6 +65,7 @@ const fmt = (p: number) => p.toLocaleString('ko-KR') + '원';
 
 type Theme      = 'dark' | 'light' | 'simple';
 type OptionsMap = { [type: string]: string[] };
+type ColorView  = 'carousel' | 'inline' | 'swatch' | 'bar';
 type SortDir    = 'asc' | 'desc';
 
 interface AndCondition { type: string; subType: string; value: string; }
@@ -108,10 +109,10 @@ const ComboboxInput = ({
         onBlur={() => { setTimeout(() => setOpen(false), 150); onBlurProp?.(); }}
         onKeyDown={onKeyDownProp}
         placeholder={loading ? '불러오는 중…' : placeholder}
-        disabled={disabled || loading}
+        disabled={disabled}
         autoComplete="off"
       />
-      {open && !disabled && !loading && filtered.length > 0 && (
+      {open && !disabled && filtered.length > 0 && (
         <ul className="combobox-dropdown">
           {filtered.slice(0, 40).map(s => (
             <li
@@ -161,7 +162,11 @@ function App() {
   const [categoricalData, setCategoricalData] = useState<{ labels: string[]; data: number[] } | null>(null);
   const [resultLabel,     setResultLabel]     = useState('');
 
-  const [sortDir,    setSortDir]   = useState<SortDir>('asc');
+  const [colorView,        setColorView]        = useState<ColorView>('carousel');
+  const [sortDir,          setSortDir]          = useState<SortDir>('asc');
+  const [inlinePage,       setInlinePage]       = useState(1);
+  const [inlinePageSize,   setInlinePageSize]   = useState(20);
+  const [inlineItemsPerRow, setInlineItemsPerRow] = useState(8);
   const [searchHex,  setSearchHex] = useState('#000000');
 
   const carouselRef = useRef<HTMLDivElement>(null);
@@ -399,8 +404,9 @@ function App() {
       : []
   , [colorData, sortDir]);
 
-  // 새 색상 결과가 올 때 퀵서치 초기화
-  useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; }, [colorData]);
+  // 새 색상 결과가 올 때 퀵서치·페이지 초기화
+  useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1); }, [colorData]);
+  useEffect(() => { setInlinePage(1); }, [sortDir, inlinePageSize, inlineItemsPerRow]);
 
   // 퀵서치: 입력 색상과 가장 가까운 색상 인덱스 (유클리드 거리)
   const matchedIdx = useMemo(() => {
@@ -426,6 +432,21 @@ function App() {
     container.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
   }, [matchedIdx]);
 
+  // ── 인라인 페이지네이션 ───────────────────────────────────────────────────
+  const totalPages  = Math.max(1, Math.ceil(sortedColors.length / inlinePageSize));
+  const pagedColors = sortedColors.slice((inlinePage - 1) * inlinePageSize, inlinePage * inlinePageSize);
+
+  const colorBarData = sortedColors.length > 0 ? {
+    labels: sortedColors.map(e => `(${e.r},${e.g},${e.b})`),
+    datasets: [{
+      label: '최저가',
+      data: sortedColors.map(e => e.price),
+      backgroundColor: sortedColors.map(e => e.hex),
+      borderColor:     sortedColors.map(e => e.hex),
+      borderWidth: 1,
+    }],
+  } : null;
+
   // ── 캐러셀 버튼 ──────────────────────────────────────────────────────────
   const scrollCarousel = (dir: 'prev' | 'next') => {
     if (!carouselRef.current) return;
@@ -445,6 +466,31 @@ function App() {
       y: {
         ticks: { color: chartColors.ticks, callback: (v: any) => fmt(Number(v)) },
         grid:  { color: chartColors.grid },
+      },
+    },
+  };
+
+  const barOptions = {
+    responsive: true,
+    plugins: {
+      legend: { display: false },
+      title:  { display: true, text: `${resultLabel} — 색상별 최저가 (로그 스케일)`, color: chartColors.text },
+      tooltip: { callbacks: { label: (ctx: any) => fmt(ctx.parsed.y) } },
+    },
+    scales: {
+      x: { ticks: { color: chartColors.ticks }, grid: { color: chartColors.grid } },
+      y: {
+        type: 'logarithmic' as const,
+        ticks: {
+          color: chartColors.ticks,
+          callback: (v: any) => {
+            const n = Number(v);
+            const log = Math.log10(n);
+            if (Math.abs(log - Math.round(log)) < 0.001) return fmt(n);
+            return '';
+          },
+        },
+        grid: { color: chartColors.grid },
       },
     },
   };
@@ -698,10 +744,16 @@ function App() {
         {colorData && colorData.length > 0 && (
           <div className="chart-container">
 
-            {/* 헤더: 타이틀 + 정렬 */}
+            {/* 헤더: 타이틀 + 뷰 토글 + 정렬 */}
             <div className="color-controls">
               <span className="color-result-title">{resultLabel}</span>
               <div className="color-control-btns">
+                <div className="btn-group">
+                  <button className={colorView === 'carousel' ? 'active' : ''} onClick={() => setColorView('carousel')}>캐러셀</button>
+                  <button className={colorView === 'inline'   ? 'active' : ''} onClick={() => setColorView('inline')}>인라인</button>
+                  <button className={colorView === 'swatch'   ? 'active' : ''} onClick={() => setColorView('swatch')}>스와치</button>
+                  <button className={colorView === 'bar'      ? 'active' : ''} onClick={() => setColorView('bar')}>그래프</button>
+                </div>
                 <div className="btn-group">
                   <button className={sortDir === 'asc'  ? 'active' : ''} onClick={() => setSortDir('asc')}>낮은순</button>
                   <button className={sortDir === 'desc' ? 'active' : ''} onClick={() => setSortDir('desc')}>높은순</button>
@@ -709,56 +761,116 @@ function App() {
               </div>
             </div>
 
-            {/* 색상 퀵서치 */}
-            <div className="color-quicksearch">
-              <label className="qs-label">색상 검색</label>
-              <input
-                type="color"
-                value={/^#[0-9a-fA-F]{6}$/.test(searchHex) ? searchHex : '#000000'}
-                onChange={e => setSearchHex(e.target.value)}
-              />
-              <input
-                type="text"
-                className="hex-input"
-                value={searchHex}
-                maxLength={7}
-                placeholder="#RRGGBB"
-                onChange={e => {
-                  const v = e.target.value;
-                  if (/^#?[0-9a-fA-F]{0,6}$/.test(v)) setSearchHex(v.startsWith('#') ? v : '#' + v);
-                }}
-              />
-              {matchedIdx !== null && sortedColors[matchedIdx] && (
-                <div className="color-match-result">
-                  <div className="color-match-swatch" style={{ backgroundColor: sortedColors[matchedIdx].hex }} />
-                  <span className="color-match-hex">{sortedColors[matchedIdx].hex.toUpperCase()}</span>
-                  <span className="color-match-rgb">({sortedColors[matchedIdx].r},{sortedColors[matchedIdx].g},{sortedColors[matchedIdx].b})</span>
-                  <span className="color-match-price">{fmt(sortedColors[matchedIdx].price)}</span>
-                </div>
-              )}
-            </div>
+            {/* 색상 퀵서치 (캐러셀·인라인 뷰에서 표시) */}
+            {(colorView === 'carousel' || colorView === 'inline') && (
+              <div className="color-quicksearch">
+                <label className="qs-label">색상 검색</label>
+                <input
+                  type="color"
+                  value={/^#[0-9a-fA-F]{6}$/.test(searchHex) ? searchHex : '#000000'}
+                  onChange={e => setSearchHex(e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="hex-input"
+                  value={searchHex}
+                  maxLength={7}
+                  placeholder="#RRGGBB"
+                  onChange={e => {
+                    const v = e.target.value;
+                    if (/^#?[0-9a-fA-F]{0,6}$/.test(v)) setSearchHex(v.startsWith('#') ? v : '#' + v);
+                  }}
+                />
+                {matchedIdx !== null && sortedColors[matchedIdx] && (
+                  <div className="color-match-result">
+                    <div className="color-match-swatch" style={{ backgroundColor: sortedColors[matchedIdx].hex }} />
+                    <span className="color-match-hex">{sortedColors[matchedIdx].hex.toUpperCase()}</span>
+                    <span className="color-match-rgb">({sortedColors[matchedIdx].r},{sortedColors[matchedIdx].g},{sortedColors[matchedIdx].b})</span>
+                    <span className="color-match-price">{fmt(sortedColors[matchedIdx].price)}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
-            {/* 캐러셀 */}
-            <div className="color-carousel-wrap">
-              <button className="carousel-btn" onClick={() => scrollCarousel('prev')}>‹</button>
-              <div className="color-carousel" ref={carouselRef}>
+            {/* 캐러셀 뷰 */}
+            {colorView === 'carousel' && (
+              <div className="color-carousel-wrap">
+                <button className="carousel-btn" onClick={() => scrollCarousel('prev')}>‹</button>
+                <div className="color-carousel" ref={carouselRef}>
+                  {sortedColors.map((e, i) => (
+                    <div
+                      key={i}
+                      className={`color-card${i === matchedIdx ? ' color-card-matched' : ''}`}
+                      ref={el => { cardRefs.current[i] = el; }}
+                    >
+                      <div className="color-card-swatch" style={{ backgroundColor: e.hex }} />
+                      <div className="color-card-info">
+                        <span className="color-card-price">{fmt(e.price)}</span>
+                        <span className="color-card-hex">{e.hex.toUpperCase()}</span>
+                        <span className="color-card-rgb">({e.r},{e.g},{e.b})</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button className="carousel-btn" onClick={() => scrollCarousel('next')}>›</button>
+              </div>
+            )}
+
+            {/* 인라인 뷰 */}
+            {colorView === 'inline' && (
+              <div className="inline-view">
+                <div
+                  className="inline-strip"
+                  style={{ '--inline-cols': inlineItemsPerRow } as React.CSSProperties}
+                >
+                  {pagedColors.map((e, i) => (
+                    <div key={i} className={`inline-item${sortedColors.indexOf(e) === matchedIdx ? ' color-card-matched' : ''}`}>
+                      <div className="inline-color-bar" style={{ backgroundColor: e.hex }} />
+                      <div className="inline-item-info">
+                        <span className="inline-price">{fmt(e.price)}</span>
+                        <span className="inline-hex">{e.hex.toUpperCase()}</span>
+                        <span className="inline-rgb">({e.r},{e.g},{e.b})</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="pagination">
+                  <button className="page-btn" onClick={() => setInlinePage(p => Math.max(1, p - 1))} disabled={inlinePage === 1}>‹</button>
+                  <span className="page-info">
+                    {inlinePage} / {totalPages}
+                    <span className="page-total"> ({sortedColors.length}개)</span>
+                  </span>
+                  <button className="page-btn" onClick={() => setInlinePage(p => Math.min(totalPages, p + 1))} disabled={inlinePage === totalPages}>›</button>
+                  <select className="page-size-select" value={inlinePageSize} onChange={e => setInlinePageSize(Number(e.target.value))}>
+                    {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}개씩</option>)}
+                  </select>
+                  <select className="page-size-select" value={inlineItemsPerRow} onChange={e => setInlineItemsPerRow(Number(e.target.value))}>
+                    {[4, 5, 6, 8, 10, 12].map(n => <option key={n} value={n}>행당 {n}개</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* 스와치 뷰 */}
+            {colorView === 'swatch' && (
+              <div className="color-grid">
                 {sortedColors.map((e, i) => (
-                  <div
-                    key={i}
-                    className={`color-card${i === matchedIdx ? ' color-card-matched' : ''}`}
-                    ref={el => { cardRefs.current[i] = el; }}
-                  >
-                    <div className="color-card-swatch" style={{ backgroundColor: e.hex }} />
-                    <div className="color-card-info">
-                      <span className="color-card-price">{fmt(e.price)}</span>
-                      <span className="color-card-hex">{e.hex.toUpperCase()}</span>
-                      <span className="color-card-rgb">({e.r},{e.g},{e.b})</span>
+                  <div key={i} className="color-swatch-card">
+                    <div className="color-swatch-box" style={{ backgroundColor: e.hex }} />
+                    <div className="color-swatch-info">
+                      <span className="color-hex">{e.hex.toUpperCase()}</span>
+                      <span className="color-rgb">({e.r}, {e.g}, {e.b})</span>
+                      <span className="color-price">{fmt(e.price)}</span>
                     </div>
                   </div>
                 ))}
               </div>
-              <button className="carousel-btn" onClick={() => scrollCarousel('next')}>›</button>
-            </div>
+            )}
+
+            {/* 바 차트 뷰 */}
+            {colorView === 'bar' && colorBarData && (
+              <Bar options={barOptions} data={colorBarData} />
+            )}
 
           </div>
         )}

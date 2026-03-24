@@ -59,7 +59,7 @@ const rgbStringToHex = (rgb: string) => {
   return `#${Number(n[0]).toString(16).padStart(2,'0')}${Number(n[1]).toString(16).padStart(2,'0')}${Number(n[2]).toString(16).padStart(2,'0')}`;
 };
 
-const fmt = (p: number) => p.toLocaleString('ko-KR') + '원';
+const fmt = (p: number) => p.toLocaleString('ko-KR') + 'G';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 

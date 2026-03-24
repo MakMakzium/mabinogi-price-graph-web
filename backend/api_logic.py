@@ -16,7 +16,7 @@
 import asyncio
 import re
 import aiohttp
-from typing import List, Dict, Any, Optional, Tuple
+from typing import AsyncIterator, List, Dict, Any, Optional, Tuple
 
 from api_client import get_headers
 
@@ -81,14 +81,6 @@ def _matches_option(
     opt_sub_type: Optional[str],
     opt_value: Optional[str] = None,
 ) -> bool:
-    """
-    option 객체가 (타입, 서브타입, 값) 조건에 맞는지 확인합니다.
-
-    서브타입 매칭 — 아래 중 하나라도 만족하면 통과:
-      1. option_sub_type 직접 일치 (에르그|A, 인챈트|접두 등)
-      2. option_value 텍스트 앞부분 일치 (세공 옵션|마법 공격력 등)
-         슬롯 번호(1/2/3)를 가진 타입에서 스탯명이 여기 들어옵니다.
-    """
     if opt.get("option_type") != opt_type:
         return False
 
@@ -132,7 +124,7 @@ def _find_numeric_value(
     return None
 
 
-# ── Nexon API 호출 ─────────────────────────────────────────────────────────────
+# ── Nexon API 스트리밍 ─────────────────────────────────────────────────────────
 
 async def _fetch_category_page(
     session: aiohttp.ClientSession,
@@ -160,52 +152,14 @@ async def _fetch_category_page(
         return []
 
 
-async def search_items_by_categories(
-    session: aiohttp.ClientSession,
-    categories: List[str],
-) -> List[Dict[str, Any]]:
-    """카테고리 목록으로 전체 아이템을 검색합니다. 페이지를 병렬로 fetch합니다."""
-    all_items: List[Dict[str, Any]] = []
-    url = "https://open.api.nexon.com/mabinogi/v1/auction/list"
-    sem = asyncio.Semaphore(5)  # 동시 요청 최대 5개
-
-    for category in categories:
-        # 1페이지를 먼저 받아 전체 페이지 수 추정
-        first_page = await _fetch_category_page(session, category, 1, sem)
-        if not first_page:
-            continue
-        all_items.extend(first_page)
-        if len(first_page) < 500:
-            continue
-
-        # 2페이지부터 병렬 fetch (최대 40페이지 = 20,000개)
-        page = 2
-        while True:
-            pages_to_fetch = list(range(page, page + 5))
-            tasks = [_fetch_category_page(session, category, p, sem) for p in pages_to_fetch]
-            results = await asyncio.gather(*tasks)
-
-            done = False
-            for items in results:
-                all_items.extend(items)
-                if len(items) < 500:
-                    done = True
-                    break
-
-            page += 5
-            if done or page > 41:
-                break
-
-    return all_items
-
-
-async def search_item_by_name(
+async def _iter_items_by_name(
     session: aiohttp.ClientSession,
     item_name: str,
-) -> List[Dict[str, Any]]:
+) -> AsyncIterator[Dict[str, Any]]:
+    """키워드 검색 — 아이템을 한 건씩 yield하여 메모리에 쌓지 않습니다."""
     url = "https://open.api.nexon.com/mabinogi/v1/auction/keyword-search"
     params: Dict = {"keyword": item_name}
-    all_items: List[Dict[str, Any]] = []
+    total = 0
 
     while True:
         try:
@@ -214,8 +168,11 @@ async def search_item_by_name(
                     print(f"검색 실패 '{item_name}' - {resp.status}", flush=True)
                     break
                 data = await resp.json()
-                all_items.extend(data.get("auction_item", []))
-                if len(all_items) >= 50000:
+                items = data.get("auction_item", [])
+                for item in items:
+                    yield item
+                total += len(items)
+                if total >= 50000:
                     break
                 cur = data.get("next_cursor")
                 if cur:
@@ -227,7 +184,38 @@ async def search_item_by_name(
             print(f"검색 오류 '{item_name}': {e}", flush=True)
             break
 
-    return all_items
+
+async def _iter_items_by_categories(
+    session: aiohttp.ClientSession,
+    categories: List[str],
+) -> AsyncIterator[Dict[str, Any]]:
+    """카테고리 검색 — 5페이지씩 병렬 fetch하고 즉시 yield합니다."""
+    sem = asyncio.Semaphore(5)
+
+    for category in categories:
+        first_page = await _fetch_category_page(session, category, 1, sem)
+        for item in first_page:
+            yield item
+        if len(first_page) < 500:
+            continue
+
+        page = 2
+        while True:
+            pages_to_fetch = list(range(page, page + 5))
+            tasks = [_fetch_category_page(session, category, p, sem) for p in pages_to_fetch]
+            results = await asyncio.gather(*tasks)
+
+            done = False
+            for items in results:
+                for item in items:
+                    yield item
+                if len(items) < 500:
+                    done = True
+                    break
+
+            page += 5
+            if done or page > 41:
+                break
 
 
 # ── 그래프 데이터 생성 ─────────────────────────────────────────────────────────
@@ -240,47 +228,70 @@ async def get_price_graph_data(
 ) -> Dict[str, Any]:
     primary_type, primary_sub = _parse_option_id(option_identifier)
 
-    and_filters: List[Tuple[str, Optional[str], Optional[str]]] = []
-    if and_options:
-        for c in and_options:
-            and_filters.append(_parse_condition(c))
-
-    async with aiohttp.ClientSession() as session:
-        if item_name:
-            all_items = await search_item_by_name(session, item_name)
-        elif categories:
-            all_items = await search_items_by_categories(session, categories)
-        else:
-            return {"error": "아이템 이름을 입력해주세요."}
-
-    if not all_items:
-        return {"error": "아이템을 찾을 수 없습니다."}
+    and_filters: List[Tuple[str, Optional[str], Optional[str]]] = [
+        _parse_condition(c) for c in (and_options or [])
+    ]
 
     def passes(item_opts: List[Dict]) -> bool:
         return all(_item_has_option(item_opts, t, s, v) for t, s, v in and_filters)
 
-    # ── 색상 그래프 ──────────────────────────────────────────────────────────
-    if primary_type in COLOR_TYPES:
-        price_by_color: Dict[str, int] = {}
+    # 타입별 집계 딕셔너리 (아이템 원본은 메모리에 보관하지 않음)
+    price_by_color: Dict[str, int] = {}
+    price_by_name:  Dict[str, int] = {}
+    price_by_val:   Dict[int, int] = {}
+    found_any = False
 
-        for item in all_items:
-            opts = item.get("item_option") or []
+    async with aiohttp.ClientSession() as session:
+        if item_name:
+            item_iter = _iter_items_by_name(session, item_name)
+        elif categories:
+            item_iter = _iter_items_by_categories(session, categories)
+        else:
+            return {"error": "아이템 이름을 입력해주세요."}
+
+        async for item in item_iter:
+            opts  = item.get("item_option") or []
+            price = item.get("auction_price_per_unit", 0)
+
             if and_filters and not passes(opts):
                 continue
-            for opt in opts:
-                if not _matches_option(opt, primary_type, primary_sub):
-                    continue
-                rgb = parse_rgb(str(opt.get("option_value", "")))
-                if rgb:
-                    key = f"{rgb[0]},{rgb[1]},{rgb[2]}"
-                    price = item.get("auction_price_per_unit", 0)
-                    if key not in price_by_color or price < price_by_color[key]:
-                        price_by_color[key] = price
-                break
 
-        if not price_by_color:
-            return {"error": "해당 조건을 만족하는 아이템 매물을 찾을 수 없습니다."}
+            if primary_type in COLOR_TYPES:
+                for opt in opts:
+                    if not _matches_option(opt, primary_type, primary_sub):
+                        continue
+                    rgb = parse_rgb(str(opt.get("option_value", "")))
+                    if rgb:
+                        key = f"{rgb[0]},{rgb[1]},{rgb[2]}"
+                        if key not in price_by_color or price < price_by_color[key]:
+                            price_by_color[key] = price
+                        found_any = True
+                    break
 
+            elif primary_type in CATEGORICAL_TYPES:
+                for opt in opts:
+                    if not _matches_option(opt, primary_type, primary_sub):
+                        continue
+                    name = str(opt.get("option_value") or "").strip()
+                    if not name or name.lower() == "none":
+                        continue
+                    if name not in price_by_name or price < price_by_name[name]:
+                        price_by_name[name] = price
+                    found_any = True
+                    break
+
+            else:
+                nv = _find_numeric_value(opts, primary_type, primary_sub)
+                if nv is not None:
+                    if nv not in price_by_val or price < price_by_val[nv]:
+                        price_by_val[nv] = price
+                    found_any = True
+
+    if not found_any:
+        return {"error": "해당 조건을 만족하는 아이템 매물을 찾을 수 없습니다."}
+
+    # ── 색상 결과 ────────────────────────────────────────────────────────────
+    if primary_type in COLOR_TYPES:
         sorted_colors = sorted(price_by_color.items(), key=lambda x: x[1])
         return {
             "type": "color",
@@ -302,28 +313,8 @@ async def get_price_graph_data(
             "option_name": option_identifier,
         }
 
-    # ── 카테고리형 그래프 (인챈트: 이름 → 가격) ─────────────────────────────
+    # ── 카테고리형 결과 ──────────────────────────────────────────────────────
     if primary_type in CATEGORICAL_TYPES:
-        price_by_name: Dict[str, int] = {}
-
-        for item in all_items:
-            opts = item.get("item_option") or []
-            if and_filters and not passes(opts):
-                continue
-            for opt in opts:
-                if not _matches_option(opt, primary_type, primary_sub):
-                    continue
-                name = str(opt.get("option_value") or "").strip()
-                if not name or name.lower() == "none":
-                    continue
-                price = item.get("auction_price_per_unit", 0)
-                if name not in price_by_name or price < price_by_name[name]:
-                    price_by_name[name] = price
-                break
-
-        if not price_by_name:
-            return {"error": "해당 조건을 만족하는 아이템 매물을 찾을 수 없습니다."}
-
         sorted_data = sorted(price_by_name.items(), key=lambda x: x[1])
         return {
             "type": "categorical",
@@ -333,23 +324,7 @@ async def get_price_graph_data(
             "option_name": option_identifier,
         }
 
-    # ── 수치 그래프 ──────────────────────────────────────────────────────────
-    price_by_val: Dict[int, int] = {}
-
-    for item in all_items:
-        opts = item.get("item_option") or []
-        if and_filters and not passes(opts):
-            continue
-        nv = _find_numeric_value(opts, primary_type, primary_sub)
-        if nv is None:
-            continue
-        price = item.get("auction_price_per_unit", 0)
-        if nv not in price_by_val or price < price_by_val[nv]:
-            price_by_val[nv] = price
-
-    if not price_by_val:
-        return {"error": "해당 조건을 만족하는 아이템 매물을 찾을 수 없습니다."}
-
+    # ── 수치 결과 ────────────────────────────────────────────────────────────
     sorted_data = sorted(price_by_val.items())
     return {
         "type": "numeric",

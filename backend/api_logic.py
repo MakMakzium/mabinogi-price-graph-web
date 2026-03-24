@@ -162,26 +162,40 @@ async def _iter_items_by_name(
     total = 0
 
     while True:
-        try:
-            async with session.get(url, headers=get_headers(), params=params) as resp:
-                if resp.status != 200:
-                    print(f"검색 실패 '{item_name}' - {resp.status}", flush=True)
+        data = None
+        for attempt in range(3):
+            try:
+                async with session.get(url, headers=get_headers(), params=params) as resp:
+                    if resp.status == 429:
+                        wait = 2 ** attempt
+                        print(f"검색 속도 제한 '{item_name}' (시도 {attempt+1}), {wait}초 대기", flush=True)
+                        await asyncio.sleep(wait)
+                        continue
+                    if resp.status != 200:
+                        print(f"검색 실패 '{item_name}' - {resp.status}", flush=True)
+                        return
+                    data = await resp.json()
                     break
-                data = await resp.json()
-                items = data.get("auction_item", [])
-                for item in items:
-                    yield item
-                total += len(items)
-                if total >= 50000:
-                    break
-                cur = data.get("next_cursor")
-                if cur:
-                    params["cursor"] = cur
-                    await asyncio.sleep(0.1)
-                else:
-                    break
-        except Exception as e:
-            print(f"검색 오류 '{item_name}': {e}", flush=True)
+            except Exception as e:
+                print(f"검색 오류 '{item_name}' (시도 {attempt+1}): {e}", flush=True)
+                if attempt < 2:
+                    await asyncio.sleep(1)
+        if data is None:
+            return
+
+        items = data.get("auction_item", [])
+        if not items:
+            break
+        for item in items:
+            yield item
+        total += len(items)
+        if total >= 50000:
+            break
+        cur = data.get("next_cursor")
+        if cur:
+            params["cursor"] = cur
+            await asyncio.sleep(0.4)
+        else:
             break
 
 

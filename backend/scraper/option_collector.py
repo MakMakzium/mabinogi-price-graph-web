@@ -96,10 +96,12 @@ async def worker_collect_options(
                                 if opt_sub and opt_sub in EXCLUDED_SUBTYPES:
                                     continue
 
+                                val_str = str(opt.get("option_value", ""))
+
                                 # sub_type이 순수 숫자(슬롯 번호)이면
                                 # option_value에서 스탯명 추출
                                 if opt_sub and str(opt_sub).strip().isdigit():
-                                    stat = extract_stat_name(str(opt.get("option_value", "")))
+                                    stat = extract_stat_name(val_str)
                                     if stat:
                                         opts.add(f"{opt_type}|{stat}")
                                     continue
@@ -107,7 +109,13 @@ async def worker_collect_options(
                                 if opt_sub and str(opt_sub).lower() != "none":
                                     opts.add(f"{opt_type}|{opt_sub}")
                                 else:
-                                    opts.add(opt_type)
+                                    # option_sub_type이 없는 타입(에코스톤 각성 능력 등):
+                                    # option_value 앞부분에서 스탯명 추출
+                                    stat = extract_stat_name(val_str)
+                                    if stat:
+                                        opts.add(f"{opt_type}|{stat}")
+                                    else:
+                                        opts.add(opt_type)
 
                         if len(items) < 500:
                             break

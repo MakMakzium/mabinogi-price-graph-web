@@ -22,6 +22,9 @@ from api_client import get_headers
 
 COLOR_TYPES = {"아이템 색상", "색상"}
 
+# option_value 자체가 이름(문자열)이어서 수치 그래프 대신 이름 → 가격 비교로 표시할 타입
+CATEGORICAL_TYPES = {"인챈트"}
+
 
 # ── RGB 유틸리티 ───────────────────────────────────────────────────────────────
 
@@ -131,6 +134,43 @@ def _find_numeric_value(
 
 # ── Nexon API 호출 ─────────────────────────────────────────────────────────────
 
+async def search_items_by_categories(
+    session: aiohttp.ClientSession,
+    categories: List[str],
+) -> List[Dict[str, Any]]:
+    """카테고리 목록으로 전체 아이템을 검색합니다 (아이템 이름 없이 조회 시 사용)."""
+    all_items: List[Dict[str, Any]] = []
+    url = "https://open.api.nexon.com/mabinogi/v1/auction/list"
+
+    for category in categories:
+        page = 1
+        while True:
+            try:
+                async with session.get(
+                    url, headers=get_headers(),
+                    params={"first_category": category, "page": page},
+                ) as resp:
+                    if resp.status == 429:
+                        await asyncio.sleep(3)
+                        continue
+                    if resp.status != 200:
+                        break
+                    data = await resp.json()
+                    items = data.get("auction_item", [])
+                    if not items:
+                        break
+                    all_items.extend(items)
+                    if len(items) < 500:
+                        break
+                    page += 1
+                    await asyncio.sleep(0.1)
+            except Exception as e:
+                print(f"[category search] {category} p{page}: {e}", flush=True)
+                break
+
+    return all_items
+
+
 async def search_item_by_name(
     session: aiohttp.ClientSession,
     item_name: str,
@@ -168,6 +208,7 @@ async def get_price_graph_data(
     item_name: str,
     option_identifier: str,
     and_options: List[str] = None,
+    categories: List[str] = None,
 ) -> Dict[str, Any]:
     primary_type, primary_sub = _parse_option_id(option_identifier)
 
@@ -177,7 +218,12 @@ async def get_price_graph_data(
             and_filters.append(_parse_condition(c))
 
     async with aiohttp.ClientSession() as session:
-        all_items = await search_item_by_name(session, item_name)
+        if item_name:
+            all_items = await search_item_by_name(session, item_name)
+        elif categories:
+            all_items = await search_items_by_categories(session, categories)
+        else:
+            return {"error": "아이템 이름을 입력해주세요."}
 
     if not all_items:
         return {"error": "아이템을 찾을 수 없습니다."}
@@ -225,6 +271,37 @@ async def get_price_graph_data(
                 for k, v in sorted_colors
             ],
             "item_name": item_name,
+            "option_name": option_identifier,
+        }
+
+    # ── 카테고리형 그래프 (인챈트: 이름 → 가격) ─────────────────────────────
+    if primary_type in CATEGORICAL_TYPES:
+        price_by_name: Dict[str, int] = {}
+
+        for item in all_items:
+            opts = item.get("item_option") or []
+            if and_filters and not passes(opts):
+                continue
+            for opt in opts:
+                if not _matches_option(opt, primary_type, primary_sub):
+                    continue
+                name = str(opt.get("option_value") or "").strip()
+                if not name or name.lower() == "none":
+                    continue
+                price = item.get("auction_price_per_unit", 0)
+                if name not in price_by_name or price < price_by_name[name]:
+                    price_by_name[name] = price
+                break
+
+        if not price_by_name:
+            return {"error": "해당 조건을 만족하는 아이템 매물을 찾을 수 없습니다."}
+
+        sorted_data = sorted(price_by_name.items(), key=lambda x: x[1])
+        return {
+            "type": "categorical",
+            "labels": [r[0] for r in sorted_data],
+            "data":   [r[1] for r in sorted_data],
+            "item_name": item_name or "(전체)",
             "option_name": option_identifier,
         }
 

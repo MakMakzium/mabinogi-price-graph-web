@@ -4,6 +4,7 @@ import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
+  LogarithmicScale,
   BarElement,
   PointElement,
   LineElement,
@@ -15,7 +16,7 @@ import { Line, Bar } from 'react-chartjs-2';
 import './App.css';
 
 ChartJS.register(
-  CategoryScale, LinearScale,
+  CategoryScale, LinearScale, LogarithmicScale,
   BarElement, PointElement, LineElement,
   Title, Tooltip, Legend,
 );
@@ -25,6 +26,9 @@ const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:800
 const COLOR_OPTION_TYPES = new Set(['아이템 색상', '색상']);
 const isColorType = (t: string) => COLOR_OPTION_TYPES.has(t);
 
+// 아이템 이름 없이 검색 가능한 타입 (카테고리 전체 조회)
+const EMPTY_SEARCH_ALLOWED = new Set(['인챈트', '색상']);
+
 // 아이템 하나에 동일 타입이 여러 슬롯으로 붙는 옵션 타입
 const SLOT_TYPED_OPTIONS = new Set([
   '세공 옵션', '무리아스 유물', '에코스톤 각성 능력',
@@ -32,11 +36,13 @@ const SLOT_TYPED_OPTIONS = new Set([
 ]);
 const isSlotTyped = (t: string) => SLOT_TYPED_OPTIONS.has(t);
 
+// 슬롯이 1개만 필요한 타입 (option_value 텍스트 앞부분 = 그래프 X축 기준)
+// ex) 무리아스 유물: "파이어 리프 어택 대미지 400%..." → 필드 1개로 스탯명 입력
+const SINGLE_SLOT_OPTIONS = new Set(['무리아스 유물']);
+
 // 슬롯 외에 별도 "효과" 필드가 필요한 타입
 // 값: 해당 효과 목록을 조회할 option_type 이름
-const EFFECT_FIELD_TYPES: Record<string, string> = {
-  '무리아스 유물': '무리아스 유물',
-};
+const EFFECT_FIELD_TYPES: Record<string, string> = {};
 
 // ── 유틸리티 ──────────────────────────────────────────────────────────────────
 
@@ -59,7 +65,6 @@ const fmt = (p: number) => p.toLocaleString('ko-KR') + '원';
 
 type Theme      = 'dark' | 'light' | 'simple';
 type OptionsMap = { [type: string]: string[] };
-type ColorView  = 'inline' | 'swatch' | 'bar';
 type SortDir    = 'asc' | 'desc';
 
 interface AndCondition { type: string; subType: string; value: string; }
@@ -72,7 +77,7 @@ const THEME_TITLES: Record<Theme, string> = { light: '라이트', dark: '다크'
 
 const ComboboxInput = ({
   value, onChange, suggestions, placeholder, disabled, loading,
-  onFocus: onFocusProp, onBlur: onBlurProp,
+  onFocus: onFocusProp, onBlur: onBlurProp, onKeyDown: onKeyDownProp,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -82,6 +87,7 @@ const ComboboxInput = ({
   loading?: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }) => {
   const [open, setOpen] = useState(false);
 
@@ -100,6 +106,7 @@ const ComboboxInput = ({
         onChange={e => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => { setOpen(true); onFocusProp?.(); }}
         onBlur={() => { setTimeout(() => setOpen(false), 150); onBlurProp?.(); }}
+        onKeyDown={onKeyDownProp}
         placeholder={loading ? '불러오는 중…' : placeholder}
         disabled={disabled || loading}
         autoComplete="off"
@@ -135,7 +142,12 @@ function App() {
   const [slotStats,   setSlotStats]   = useState<Record<string, string[]>>({});
   const fetchingRef = useRef<Set<string>>(new Set());
 
-  const [itemName,       setItemName]       = useState('');
+  const [searchMode,        setSearchMode]        = useState<'name' | 'category'>('name');
+  const [categories,        setCategories]        = useState<string[]>([]);
+  const [selectedCategory,  setSelectedCategory]  = useState('');
+  const [itemName,          setItemName]          = useState('');
+  const [itemSuggestions,   setItemSuggestions]   = useState<string[]>([]);
+  const [itemSearchLoading, setItemSearchLoading] = useState(false);
   const [primaryType,    setPrimaryType]    = useState('');
   const [primarySubType, setPrimarySubType] = useState('');
   const [primarySlots,   setPrimarySlots]   = useState<[string, string, string]>(['', '', '']);
@@ -144,15 +156,16 @@ function App() {
   const [effectFocused,  setEffectFocused]  = useState(false);
   const [andConditions,  setAndConditions]  = useState<AndCondition[]>([]);
 
-  const [chartData,   setChartData]   = useState<any>(null);
-  const [colorData,   setColorData]   = useState<ColorEntry[] | null>(null);
-  const [resultLabel, setResultLabel] = useState('');
+  const [chartData,       setChartData]       = useState<any>(null);
+  const [colorData,       setColorData]       = useState<ColorEntry[] | null>(null);
+  const [categoricalData, setCategoricalData] = useState<{ labels: string[]; data: number[] } | null>(null);
+  const [resultLabel,     setResultLabel]     = useState('');
 
-  const [colorView,        setColorView]        = useState<ColorView>('inline');
-  const [sortDir,          setSortDir]          = useState<SortDir>('asc');
-  const [inlinePage,       setInlinePage]       = useState(1);
-  const [inlinePageSize,   setInlinePageSize]   = useState(20);
-  const [inlineItemsPerRow, setInlineItemsPerRow] = useState(8);
+  const [sortDir,    setSortDir]   = useState<SortDir>('asc');
+  const [searchHex,  setSearchHex] = useState('#000000');
+
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const cardRefs    = useRef<(HTMLDivElement | null)[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
@@ -164,6 +177,22 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('mabi-theme', theme);
   }, [theme]);
+
+  // ── 아이템 이름 자동완성 ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!itemName.trim() || itemName.trim().length < 2) {
+      setItemSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setItemSearchLoading(true);
+      axios.get(`${API_BASE_URL}/search-items`, { params: { keyword: itemName.trim() } })
+        .then(res => setItemSuggestions(res.data.names || []))
+        .catch(() => setItemSuggestions([]))
+        .finally(() => setItemSearchLoading(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [itemName]); // eslint-disable-line
 
   // ── 옵션 로드 ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -179,6 +208,16 @@ function App() {
       })
       .catch(() => setError('백엔드 서버에서 옵션 목록을 가져올 수 없습니다.'))
       .finally(() => setOptionsLoading(false));
+  }, []);
+
+  // ── 카테고리 로드 ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    axios.get(`${API_BASE_URL}/categories`)
+      .then(res => {
+        setCategories(res.data || []);
+        if (res.data?.length > 0) setSelectedCategory(res.data[0]);
+      })
+      .catch(() => {});
   }, []);
 
   // ── 슬롯 타입 서브옵션 조회 ────────────────────────────────────────────────
@@ -204,14 +243,12 @@ function App() {
     });
   }, [andConditions]); // eslint-disable-line
 
-  // ── 페이지 리셋 ─────────────────────────────────────────────────────────────
-  useEffect(() => { setInlinePage(1); }, [colorData, sortDir, inlinePageSize, inlineItemsPerRow]);
-
   // ── 차트 테마 ───────────────────────────────────────────────────────────────
-  const chartColors = useMemo(() => theme === 'light'
-    ? { text: '#1a2235', grid: 'rgba(0,0,0,0.07)',       ticks: '#4b5a6e' }
-    : { text: '#c8d0e0', grid: 'rgba(255,255,255,0.07)', ticks: '#7d8ba5' }
-  , [theme]);
+  const chartColors = useMemo(() => {
+    if (theme === 'light')   return { text: '#1a2235', grid: 'rgba(0,0,0,0.07)',        ticks: '#4b5a6e' };
+    if (theme === 'simple')  return { text: '#3d1f00', grid: 'rgba(180,80,0,0.08)',     ticks: '#8b5a2b' };
+    return                          { text: '#c8d0e0', grid: 'rgba(255,255,255,0.07)',  ticks: '#7d8ba5' };
+  }, [theme]);
 
   // ── 핸들러 ────────────────────────────────────────────────────────────────
 
@@ -266,8 +303,14 @@ function App() {
   const buildId = (type: string, sub: string) => sub ? `${type}|${sub}` : type;
 
   const handleFetch = () => {
-    if (!itemName.trim()) { setError('아이템 이름을 입력해주세요.'); return; }
-    if (!primaryType)     { setError('그래프 기준 옵션을 선택해주세요.'); return; }
+    if (searchMode === 'category') {
+      if (!selectedCategory) { setError('카테고리를 선택해주세요.'); return; }
+    } else {
+      if (!itemName.trim() && !EMPTY_SEARCH_ALLOWED.has(primaryType)) {
+        setError('아이템 이름을 입력해주세요.'); return;
+      }
+    }
+    if (!primaryType) { setError('그래프 기준 옵션을 선택해주세요.'); return; }
 
     const slotBased = isSlotTyped(primaryType);
 
@@ -275,6 +318,7 @@ function App() {
     setError(null);
     setChartData(null);
     setColorData(null);
+    setCategoricalData(null);
 
     let optionId: string;
     let slotAnds: AndCondition[] = [];
@@ -310,19 +354,25 @@ function App() {
       }),
     ].join(' + ');
 
+    const searchParam = searchMode === 'category'
+      ? { category: selectedCategory }
+      : { item_name: itemName.trim() };
+
+    const displayName = searchMode === 'category'
+      ? `[${selectedCategory}]`
+      : (itemName.trim() || '(전체)');
+
     axios.get(`${API_BASE_URL}/graph-data`, {
-      params: {
-        item_name: itemName.trim(),
-        option_id: optionId,
-        ...(andStr && { and_options: andStr }),
-      },
+      params: { option_id: optionId, ...searchParam, ...(andStr && { and_options: andStr }) },
     })
       .then(res => {
         if (res.data.error) { setError(res.data.error); return; }
-        const label = `${res.data.item_name} / ${condLabel}`;
+        const label = `${res.data.item_name || displayName} / ${condLabel}`;
         setResultLabel(label);
         if (res.data.type === 'color') {
           setColorData(res.data.colors);
+        } else if (res.data.type === 'categorical') {
+          setCategoricalData({ labels: res.data.labels, data: res.data.data });
         } else {
           setChartData({
             labels: res.data.labels,
@@ -342,29 +392,46 @@ function App() {
       .finally(() => setLoading(false));
   };
 
-  // ── 색상 정렬 & 페이지네이션 ───────────────────────────────────────────────
+  // ── 색상 정렬 ──────────────────────────────────────────────────────────────
   const sortedColors = useMemo(() =>
     colorData
       ? [...colorData].sort((a, b) => sortDir === 'asc' ? a.price - b.price : b.price - a.price)
       : []
   , [colorData, sortDir]);
 
-  const totalPages = Math.max(1, Math.ceil(sortedColors.length / inlinePageSize));
-  const pagedColors = sortedColors.slice(
-    (inlinePage - 1) * inlinePageSize,
-    inlinePage * inlinePageSize,
-  );
+  // 새 색상 결과가 올 때 퀵서치 초기화
+  useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; }, [colorData]);
 
-  const colorBarData = sortedColors.length > 0 ? {
-    labels: sortedColors.map(e => `(${e.r},${e.g},${e.b})`),
-    datasets: [{
-      label: '최저가',
-      data: sortedColors.map(e => e.price),
-      backgroundColor: sortedColors.map(e => e.hex),
-      borderColor:     sortedColors.map(e => e.hex),
-      borderWidth: 1,
-    }],
-  } : null;
+  // 퀵서치: 입력 색상과 가장 가까운 색상 인덱스 (유클리드 거리)
+  const matchedIdx = useMemo(() => {
+    if (!/^#[0-9a-fA-F]{6}$/.test(searchHex) || sortedColors.length === 0) return null;
+    const r = parseInt(searchHex.slice(1, 3), 16);
+    const g = parseInt(searchHex.slice(3, 5), 16);
+    const b = parseInt(searchHex.slice(5, 7), 16);
+    let minDist = Infinity, minIdx = 0;
+    sortedColors.forEach((c, i) => {
+      const d = (c.r - r) ** 2 + (c.g - g) ** 2 + (c.b - b) ** 2;
+      if (d < minDist) { minDist = d; minIdx = i; }
+    });
+    return minIdx;
+  }, [searchHex, sortedColors]);
+
+  // matchedIdx가 바뀌면 해당 카드로 캐러셀 스크롤
+  useEffect(() => {
+    if (matchedIdx === null || !carouselRef.current) return;
+    const card = cardRefs.current[matchedIdx];
+    if (!card) return;
+    const container = carouselRef.current;
+    const left = card.offsetLeft - (container.offsetWidth - card.offsetWidth) / 2;
+    container.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+  }, [matchedIdx]);
+
+  // ── 캐러셀 버튼 ──────────────────────────────────────────────────────────
+  const scrollCarousel = (dir: 'prev' | 'next') => {
+    if (!carouselRef.current) return;
+    const amount = carouselRef.current.offsetWidth * 0.8;
+    carouselRef.current.scrollBy({ left: dir === 'next' ? amount : -amount, behavior: 'smooth' });
+  };
 
   // ── 차트 옵션 ─────────────────────────────────────────────────────────────
   const lineOptions = {
@@ -382,28 +449,37 @@ function App() {
     },
   };
 
-  const barOptions = {
+  const categoricalChartData = categoricalData ? {
+    labels: categoricalData.labels,
+    datasets: [{
+      label: '최저가',
+      data: categoricalData.data,
+      backgroundColor: 'rgba(97, 218, 251, 0.7)',
+      borderColor: 'rgb(97, 218, 251)',
+      borderWidth: 1,
+    }],
+  } : null;
+
+  const categoricalOptions = {
     responsive: true,
     plugins: {
       legend: { display: false },
-      title:  { display: true, text: `${resultLabel} — 색상별 최저가 (로그 스케일)`, color: chartColors.text },
+      title:  { display: true, text: `${resultLabel} — 인챈트별 최저가`, color: chartColors.text },
       tooltip: { callbacks: { label: (ctx: any) => fmt(ctx.parsed.y) } },
     },
     scales: {
-      x: { ticks: { color: chartColors.ticks }, grid: { color: chartColors.grid } },
-      y: {
-        type: 'logarithmic' as const,
+      x: {
         ticks: {
           color: chartColors.ticks,
-          callback: (v: any) => {
-            const n = Number(v);
-            // 로그 스케일에서 10의 거듭제곱 단위만 레이블 표시
-            const log = Math.log10(n);
-            if (Math.abs(log - Math.round(log)) < 0.001) return fmt(n);
-            return '';
-          },
+          maxRotation: 60,
+          minRotation: 30,
+          autoSkip: false,
         },
         grid: { color: chartColors.grid },
+      },
+      y: {
+        ticks: { color: chartColors.ticks, callback: (v: any) => fmt(Number(v)) },
+        grid:  { color: chartColors.grid },
       },
     },
   };
@@ -453,13 +529,41 @@ function App() {
       <main className="App-main">
         {/* 검색 */}
         <div className="search-row">
-          <input
-            type="text"
-            value={itemName}
-            onChange={e => setItemName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleFetch()}
-            placeholder="아이템 이름 입력 (예: 나이트브링어 인퀴지터)"
-          />
+          <div className="search-mode-group btn-group">
+            <button
+              className={searchMode === 'name' ? 'active' : ''}
+              onClick={() => setSearchMode('name')}
+            >이름</button>
+            <button
+              className={searchMode === 'category' ? 'active' : ''}
+              onClick={() => setSearchMode('category')}
+            >카테고리</button>
+          </div>
+
+          {searchMode === 'name' ? (
+            <ComboboxInput
+              value={itemName}
+              onChange={setItemName}
+              suggestions={itemSuggestions}
+              placeholder={
+                EMPTY_SEARCH_ALLOWED.has(primaryType)
+                  ? '아이템 이름 입력 (비워두면 전체 검색)'
+                  : '아이템 이름 입력 (예: 나이트브링어 인퀴지터)'
+              }
+              loading={itemSearchLoading}
+              onKeyDown={e => e.key === 'Enter' && handleFetch()}
+            />
+          ) : (
+            <select
+              className="category-select"
+              value={selectedCategory}
+              onChange={e => setSelectedCategory(e.target.value)}
+            >
+              {categories.length === 0 && <option value="">불러오는 중…</option>}
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
+
           <button className="btn-primary" onClick={handleFetch} disabled={loading || optionsLoading}>
             {loading ? '불러오는 중…' : '그래프 생성'}
           </button>
@@ -482,13 +586,15 @@ function App() {
             </div>
           </div>
 
-          {/* 슬롯 타입: 3개 콤보박스 */}
+          {/* 슬롯 타입: 콤보박스 (단일 슬롯 타입은 1개, 그 외 3개) */}
           {isSlotTyped(primaryType) && (
             <div className="slot-section">
-              {([0, 1, 2] as const).map(i => (
+              {(SINGLE_SLOT_OPTIONS.has(primaryType) ? [0 as const] : [0, 1, 2] as const).map(i => (
                 <div key={i} className="slot-row">
                   <span className={`slot-label${focusedSlot === i ? ' slot-label-primary' : ''}`}>
-                    슬롯 {i + 1}{focusedSlot === i ? ' ★' : ''}
+                    {SINGLE_SLOT_OPTIONS.has(primaryType)
+                      ? `스탯${focusedSlot === i ? ' ★' : ''}`
+                      : `슬롯 ${i + 1}${focusedSlot === i ? ' ★' : ''}`}
                   </span>
                   <ComboboxInput
                     value={primarySlots[i]}
@@ -504,8 +610,8 @@ function App() {
                 </div>
               ))}
 
-              {/* 효과 필드 (무리아스의 유물 등 별도 효과 조건이 있는 타입) */}
-              {primaryType in EFFECT_FIELD_TYPES && (
+              {/* 효과 필드 (별도 효과 조건이 있는 타입에만 표시) */}
+              {!SINGLE_SLOT_OPTIONS.has(primaryType) && primaryType in EFFECT_FIELD_TYPES && (
                 <div className="slot-row slot-row-effect">
                   <span className={`slot-label${effectFocused ? ' slot-label-primary' : ''}`}>
                     효과{effectFocused ? ' ★' : ''}
@@ -581,18 +687,21 @@ function App() {
           </div>
         )}
 
+        {/* 인챈트 등 카테고리형 그래프 */}
+        {categoricalData && categoricalChartData && (
+          <div className="chart-container">
+            <Bar options={categoricalOptions} data={categoricalChartData} />
+          </div>
+        )}
+
         {/* 색상 결과 */}
         {colorData && colorData.length > 0 && (
           <div className="chart-container">
-            {/* 색상 결과 컨트롤 */}
+
+            {/* 헤더: 타이틀 + 정렬 */}
             <div className="color-controls">
               <span className="color-result-title">{resultLabel}</span>
               <div className="color-control-btns">
-                <div className="btn-group">
-                  <button className={colorView === 'inline' ? 'active' : ''} onClick={() => setColorView('inline')}>인라인</button>
-                  <button className={colorView === 'swatch' ? 'active' : ''} onClick={() => setColorView('swatch')}>스와치</button>
-                  <button className={colorView === 'bar'    ? 'active' : ''} onClick={() => setColorView('bar')}>그래프</button>
-                </div>
                 <div className="btn-group">
                   <button className={sortDir === 'asc'  ? 'active' : ''} onClick={() => setSortDir('asc')}>낮은순</button>
                   <button className={sortDir === 'desc' ? 'active' : ''} onClick={() => setSortDir('desc')}>높은순</button>
@@ -600,81 +709,57 @@ function App() {
               </div>
             </div>
 
-            {/* 인라인 뷰 */}
-            {colorView === 'inline' && (
-              <div className="inline-view">
-                <div
-                  className="inline-strip"
-                  style={{ '--inline-cols': inlineItemsPerRow } as React.CSSProperties}
-                >
-                  {pagedColors.map((e, i) => (
-                    <div key={i} className="inline-item">
-                      <div className="inline-color-bar" style={{ backgroundColor: e.hex }} />
-                      <div className="inline-item-info">
-                        <span className="inline-price">{fmt(e.price)}</span>
-                        <span className="inline-hex">{e.hex.toUpperCase()}</span>
-                        <span className="inline-rgb">({e.r},{e.g},{e.b})</span>
-                      </div>
-                    </div>
-                  ))}
+            {/* 색상 퀵서치 */}
+            <div className="color-quicksearch">
+              <label className="qs-label">색상 검색</label>
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(searchHex) ? searchHex : '#000000'}
+                onChange={e => setSearchHex(e.target.value)}
+              />
+              <input
+                type="text"
+                className="hex-input"
+                value={searchHex}
+                maxLength={7}
+                placeholder="#RRGGBB"
+                onChange={e => {
+                  const v = e.target.value;
+                  if (/^#?[0-9a-fA-F]{0,6}$/.test(v)) setSearchHex(v.startsWith('#') ? v : '#' + v);
+                }}
+              />
+              {matchedIdx !== null && sortedColors[matchedIdx] && (
+                <div className="color-match-result">
+                  <div className="color-match-swatch" style={{ backgroundColor: sortedColors[matchedIdx].hex }} />
+                  <span className="color-match-hex">{sortedColors[matchedIdx].hex.toUpperCase()}</span>
+                  <span className="color-match-rgb">({sortedColors[matchedIdx].r},{sortedColors[matchedIdx].g},{sortedColors[matchedIdx].b})</span>
+                  <span className="color-match-price">{fmt(sortedColors[matchedIdx].price)}</span>
                 </div>
-                <div className="pagination">
-                  <button
-                    className="page-btn"
-                    onClick={() => setInlinePage(p => Math.max(1, p - 1))}
-                    disabled={inlinePage === 1}
-                  >‹</button>
-                  <span className="page-info">
-                    {inlinePage} / {totalPages}
-                    <span className="page-total"> ({sortedColors.length}개)</span>
-                  </span>
-                  <button
-                    className="page-btn"
-                    onClick={() => setInlinePage(p => Math.min(totalPages, p + 1))}
-                    disabled={inlinePage === totalPages}
-                  >›</button>
-                  <select
-                    className="page-size-select"
-                    value={inlinePageSize}
-                    onChange={e => setInlinePageSize(Number(e.target.value))}
-                  >
-                    {[10, 20, 50, 100].map(n => (
-                      <option key={n} value={n}>{n}개씩</option>
-                    ))}
-                  </select>
-                  <select
-                    className="page-size-select"
-                    value={inlineItemsPerRow}
-                    onChange={e => setInlineItemsPerRow(Number(e.target.value))}
-                  >
-                    {[4, 5, 6, 8, 10, 12].map(n => (
-                      <option key={n} value={n}>행당 {n}개</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
 
-            {/* 스와치 뷰 */}
-            {colorView === 'swatch' && (
-              <div className="color-grid">
+            {/* 캐러셀 */}
+            <div className="color-carousel-wrap">
+              <button className="carousel-btn" onClick={() => scrollCarousel('prev')}>‹</button>
+              <div className="color-carousel" ref={carouselRef}>
                 {sortedColors.map((e, i) => (
-                  <div key={i} className="color-swatch-card">
-                    <div className="color-swatch-box" style={{ backgroundColor: e.hex }} />
-                    <div className="color-swatch-info">
-                      <span className="color-hex">{e.hex.toUpperCase()}</span>
-                      <span className="color-rgb">({e.r}, {e.g}, {e.b})</span>
-                      <span className="color-price">{fmt(e.price)}</span>
+                  <div
+                    key={i}
+                    className={`color-card${i === matchedIdx ? ' color-card-matched' : ''}`}
+                    ref={el => { cardRefs.current[i] = el; }}
+                  >
+                    <div className="color-card-swatch" style={{ backgroundColor: e.hex }} />
+                    <div className="color-card-info">
+                      <span className="color-card-price">{fmt(e.price)}</span>
+                      <span className="color-card-hex">{e.hex.toUpperCase()}</span>
+                      <span className="color-card-rgb">({e.r},{e.g},{e.b})</span>
                     </div>
                   </div>
                 ))}
               </div>
-            )}
+              <button className="carousel-btn" onClick={() => scrollCarousel('next')}>›</button>
+            </div>
 
-            {/* 바 차트 뷰 */}
-            {colorView === 'bar' && colorBarData && (
-              <Bar options={barOptions} data={colorBarData} />
-            )}
           </div>
         )}
       </main>

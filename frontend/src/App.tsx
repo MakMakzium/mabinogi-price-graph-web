@@ -27,7 +27,12 @@ const COLOR_OPTION_TYPES = new Set(['아이템 색상', '색상']);
 const isColorType = (t: string) => COLOR_OPTION_TYPES.has(t);
 
 // 아이템 이름 없이 검색 가능한 타입 (카테고리 전체 조회 또는 고정 아이템명 자동 사용)
-const EMPTY_SEARCH_ALLOWED = new Set(['인챈트', '색상', '무리아스 유물']);
+const EMPTY_SEARCH_ALLOWED = new Set([
+  '인챈트 종류', '색상', '무리아스 유물',
+  '에코스톤 각성 능력', '에코스톤 고유 능력', '에코스톤 등급',
+  '토템 효과', '토템 추가 옵션', '토템 강화 제한',
+  '펫 정보',
+]);
 
 // 아이템 하나에 동일 타입이 여러 슬롯으로 붙는 옵션 타입
 const SLOT_TYPED_OPTIONS = new Set([
@@ -129,7 +134,7 @@ const OPTION_TYPE_GROUPS: { label: string; types: string[] }[] = [
   },
   {
     label: '펫',
-    types: ['펫 정보', '펫 능력치', '펫 기술'],
+    types: ['펫 정보'],
   },
 ];
 
@@ -221,6 +226,11 @@ function App() {
   const [colorData,       setColorData]       = useState<ColorEntry[] | null>(null);
   const [categoricalData, setCategoricalData] = useState<{ labels: string[]; data: number[] } | null>(null);
   const [resultLabel,     setResultLabel]     = useState('');
+
+  const [catSearch,        setCatSearch]        = useState('');
+  const [catPage,          setCatPage]          = useState(1);
+  const [catPageSize,      setCatPageSize]      = useState(20);
+  const [catSortDir,       setCatSortDir]       = useState<SortDir>('asc');
 
   const [colorView,        setColorView]        = useState<ColorView>('carousel');
   const [sortDir,          setSortDir]          = useState<SortDir>('asc');
@@ -517,6 +527,9 @@ function App() {
       : []
   , [colorData, sortDir]);
 
+  // 새 categorical 결과가 올 때 초기화
+  useEffect(() => { setCatSearch(''); setCatPage(1); }, [categoricalData]);
+
   // 새 색상 결과가 올 때 퀵서치·페이지 초기화
   useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1); }, [colorData]);
   useEffect(() => { setInlinePage(1); }, [sortDir, inlinePageSize, inlineItemsPerRow]);
@@ -611,6 +624,22 @@ function App() {
       },
     },
   };
+
+  // ── categorical 필터/정렬/페이지 ─────────────────────────────────────────
+  const catFiltered = useMemo(() => {
+    if (!categoricalData) return [];
+    const q = catSearch.trim().toLowerCase();
+    const pairs = categoricalData.labels.map((label, i) => ({ label, price: categoricalData.data[i] }));
+    const filtered = q ? pairs.filter(p => p.label.toLowerCase().includes(q)) : pairs;
+    return [...filtered].sort((a, b) =>
+      catSortDir === 'asc' ? a.price - b.price : b.price - a.price
+    );
+  }, [categoricalData, catSearch, catSortDir]);
+
+  const catTotalPages = Math.max(1, Math.ceil(catFiltered.length / catPageSize));
+  const catPaged      = catFiltered.slice((catPage - 1) * catPageSize, catPage * catPageSize);
+
+  useEffect(() => { setCatPage(1); }, [catSearch, catSortDir, catPageSize]);
 
   const categoricalChartData = categoricalData ? {
     labels: categoricalData.labels,
@@ -892,9 +921,60 @@ function App() {
         )}
 
         {/* 인챈트 등 카테고리형 그래프 */}
-        {categoricalData && categoricalChartData && (
+        {categoricalData && (
           <div className="chart-container">
-            <Bar options={categoricalOptions} data={categoricalChartData} />
+            {/* 컨트롤 바 */}
+            <div className="cat-controls">
+              <span className="cat-result-title">{resultLabel}</span>
+              <div className="cat-control-btns">
+                <input
+                  className="cat-search-input"
+                  type="text"
+                  placeholder="이름 검색…"
+                  value={catSearch}
+                  onChange={e => setCatSearch(e.target.value)}
+                />
+                <div className="btn-group">
+                  <button className={catSortDir === 'asc'  ? 'active' : ''} onClick={() => setCatSortDir('asc')}>낮은순</button>
+                  <button className={catSortDir === 'desc' ? 'active' : ''} onClick={() => setCatSortDir('desc')}>높은순</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Bar 차트 — 현재 페이지 데이터만 */}
+            {catPaged.length > 0 && (() => {
+              const pageChartData = {
+                labels: catPaged.map(p => p.label),
+                datasets: [{
+                  label: '최저가',
+                  data: catPaged.map(p => p.price),
+                  backgroundColor: 'rgba(97, 218, 251, 0.7)',
+                  borderColor: 'rgb(97, 218, 251)',
+                  borderWidth: 1,
+                }],
+              };
+              const pageOptions = {
+                ...categoricalOptions,
+                onClick: (_: any, elements: any[]) => {
+                  if (!elements.length || !lastSearch) return;
+                  fetchItemDetails(catPaged[elements[0].index].label, lastSearch);
+                },
+              };
+              return <Bar options={pageOptions} data={pageChartData} />;
+            })()}
+
+            {/* 페이지네이션 */}
+            <div className="pagination cat-pagination">
+              <button className="page-btn" onClick={() => setCatPage(p => Math.max(1, p - 1))} disabled={catPage === 1}>‹</button>
+              <span className="page-info">
+                {catPage} / {catTotalPages}
+                <span className="page-total"> ({catFiltered.length}개)</span>
+              </span>
+              <button className="page-btn" onClick={() => setCatPage(p => Math.min(catTotalPages, p + 1))} disabled={catPage === catTotalPages}>›</button>
+              <select className="page-size-select" value={catPageSize} onChange={e => setCatPageSize(Number(e.target.value))}>
+                {[20, 50, 100].map(n => <option key={n} value={n}>{n}개씩</option>)}
+              </select>
+            </div>
           </div>
         )}
 

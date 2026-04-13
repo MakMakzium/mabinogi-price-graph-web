@@ -1244,6 +1244,50 @@ body {
   }
 }
 
+/* ── categorical 컨트롤 ──────────────────────────────────────────────────────── */
+
+.cat-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.cat-result-title {
+  font-size: 0.88rem;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.cat-control-btns {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cat-search-input {
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-1);
+  font-size: 0.83rem;
+  outline: none;
+  width: 160px;
+  transition: border-color 0.15s;
+}
+
+.cat-search-input:focus {
+  border-color: var(--border-focus);
+}
+
+.cat-pagination {
+  margin-top: 0.75rem;
+}
+
 /* ── 매물 상세 모달 ───────────────────────────────────────────────────────────── */
 
 .detail-overlay {

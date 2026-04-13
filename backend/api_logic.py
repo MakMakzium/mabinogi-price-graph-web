@@ -228,7 +228,7 @@ async def _iter_items_by_categories(
                     break
 
             page += 5
-            if done or page > 41:
+            if done:
                 break
 
 

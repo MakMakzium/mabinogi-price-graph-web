@@ -300,6 +300,17 @@ async def get_price_graph_data(
                     if nv not in price_by_val or price < price_by_val[nv]:
                         price_by_val[nv] = price
                     found_any = True
+                else:
+                    # 수치 추출 실패 → 문자열 값 폴백 (펫 정보 등 비수치 타입 자동 감지)
+                    for opt in opts:
+                        if not _matches_option(opt, primary_type, primary_sub):
+                            continue
+                        name = str(opt.get("option_value") or "").strip()
+                        if name and name.lower() != "none":
+                            if name not in price_by_name or price < price_by_name[name]:
+                                price_by_name[name] = price
+                            found_any = True
+                        break
 
     if not found_any:
         return {"error": "해당 조건을 만족하는 아이템 매물을 찾을 수 없습니다."}
@@ -327,8 +338,8 @@ async def get_price_graph_data(
             "option_name": option_identifier,
         }
 
-    # ── 카테고리형 결과 ──────────────────────────────────────────────────────
-    if primary_type in CATEGORICAL_TYPES:
+    # ── 카테고리형 결과 (명시적 categorical 타입 OR 문자열 값 자동 감지) ──────
+    if price_by_name:
         sorted_data = sorted(price_by_name.items(), key=lambda x: x[1])
         return {
             "type": "categorical",
@@ -347,3 +358,84 @@ async def get_price_graph_data(
         "item_name": item_name,
         "option_name": option_identifier,
     }
+
+
+# ── 매물 상세 목록 ──────────────────────────────────────────────────────────────
+
+async def get_item_list(
+    item_name: str,
+    option_identifier: str,
+    target_value: str,
+    and_options: List[str] = None,
+    categories: List[str] = None,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """특정 옵션 값을 가진 아이템 매물 목록을 반환합니다."""
+    primary_type, primary_sub = _parse_option_id(option_identifier)
+
+    and_filters: List[Tuple[str, Optional[str], Optional[str]]] = [
+        _parse_condition(c) for c in (and_options or [])
+    ]
+
+    def passes(item_opts: List[Dict]) -> bool:
+        return all(_item_has_option(item_opts, t, s, v) for t, s, v in and_filters)
+
+    is_numeric = primary_type not in COLOR_TYPES and primary_type not in CATEGORICAL_TYPES
+    target_int: Optional[int] = None
+    if is_numeric:
+        try:
+            target_int = int(target_value)
+        except ValueError:
+            # int 파싱 실패 → 문자열 값 타입으로 폴백 (펫 정보 등 자동 감지 타입)
+            is_numeric = False
+
+    results = []
+
+    async with aiohttp.ClientSession() as session:
+        if item_name:
+            item_iter = _iter_items_by_name(session, item_name)
+        elif categories:
+            item_iter = _iter_items_by_categories(session, categories)
+        else:
+            return {"error": "아이템 이름을 입력해주세요."}
+
+        async for item in item_iter:
+            if len(results) >= limit:
+                break
+
+            opts = item.get("item_option") or []
+
+            if and_filters and not passes(opts):
+                continue
+
+            if is_numeric:
+                nv = _find_numeric_value(opts, primary_type, primary_sub)
+                if nv != target_int:
+                    continue
+            else:
+                matched = any(
+                    _matches_option(opt, primary_type, primary_sub)
+                    and opt.get("option_value", "").strip() == target_value
+                    for opt in opts
+                )
+                if not matched:
+                    continue
+
+            results.append({
+                "item_name": item.get("item_name", ""),
+                "price": item.get("auction_price_per_unit", 0),
+                "auction_end_date": item.get("date_auction_expire", ""),
+                "options": [
+                    {
+                        "type": opt.get("option_type", ""),
+                        "sub_type": opt.get("option_sub_type", ""),
+                        "value": opt.get("option_value", ""),
+                        "value2": opt.get("option_value2", ""),
+                    }
+                    for opt in opts
+                    if opt.get("option_type")
+                ],
+            })
+
+    results.sort(key=lambda x: x["price"])
+    return {"items": results, "total": len(results)}

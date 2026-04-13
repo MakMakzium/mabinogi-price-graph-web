@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import {
   Chart as ChartJS,
@@ -71,8 +71,67 @@ type SortDir    = 'asc' | 'desc';
 interface AndCondition { type: string; subType: string; value: string; }
 interface ColorEntry   { r: number; g: number; b: number; hex: string; price: number; }
 
+interface ItemOption   { type: string; sub_type: string; value: string; value2: string; }
+interface ItemDetail   { item_name: string; price: number; auction_end_date: string; options: ItemOption[]; }
+interface DetailModal  { value: string; items: ItemDetail[]; }
+
+interface LastSearch   { optionId: string; searchParam: Record<string, string | undefined>; andStr: string; }
+
 const THEME_ICONS:  Record<Theme, string> = { light: '☀️', dark: '🌙', simple: '⭐' };
 const THEME_TITLES: Record<Theme, string> = { light: '라이트', dark: '다크', simple: '심플' };
+
+// 옵션 타입 그룹핑 (순서 = 드롭다운 표시 순서)
+// 목록에 없는 타입은 자동으로 '기타' 그룹에 들어감
+const OPTION_TYPE_GROUPS: { label: string; types: string[] }[] = [
+  {
+    label: '장비 스탯',
+    types: ['공격', '방어력', '마법 방어력', '보호', '마법 보호', '밸런스', '부상률', '크리티컬', '피어싱 레벨'],
+  },
+  {
+    label: '강화/개조',
+    types: ['세공 옵션', '에르그', '일반 개조', '보석 개조', '특별 개조', '장인 개조'],
+  },
+  {
+    label: '인챈트',
+    types: ['인챈트', '인챈트 종류', '인챈트 불가능'],
+  },
+  {
+    label: '색상',
+    types: ['색상', '아이템 색상'],
+  },
+  {
+    label: '세트/효과',
+    types: ['사용 효과', '세트 효과'],
+  },
+  {
+    label: '아이템 정보',
+    types: ['내구도', '내구력', '숙련', '품질', '크기', '아이템 보호'],
+  },
+  {
+    label: '거래/제한',
+    types: ['남은 거래 횟수', '남은 사용 횟수', '남은 전용 해제 가능 횟수', '전용 해제 거래 보증서 사용 불가'],
+  },
+  {
+    label: '에코스톤',
+    types: ['에코스톤 각성 능력', '에코스톤 고유 능력', '에코스톤 등급'],
+  },
+  {
+    label: '토템',
+    types: ['토템 효과', '토템 추가 옵션', '토템 강화 제한'],
+  },
+  {
+    label: '유물',
+    types: ['무리아스 유물'],
+  },
+  {
+    label: '음식/허브',
+    types: ['조미료 효과'],
+  },
+  {
+    label: '펫',
+    types: ['펫 정보', '펫 능력치', '펫 기술'],
+  },
+];
 
 // ── 콤보박스 컴포넌트 ──────────────────────────────────────────────────────────
 
@@ -149,6 +208,7 @@ function App() {
   const [itemName,          setItemName]          = useState('');
   const [itemSuggestions,   setItemSuggestions]   = useState<string[]>([]);
   const [itemSearchLoading, setItemSearchLoading] = useState(false);
+  const [primaryGroup,   setPrimaryGroup]   = useState('');
   const [primaryType,    setPrimaryType]    = useState('');
   const [primarySubType, setPrimarySubType] = useState('');
   const [primarySlots,   setPrimarySlots]   = useState<[string, string, string]>(['', '', '']);
@@ -175,7 +235,19 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
+  const [lastSearch,    setLastSearch]    = useState<LastSearch | null>(null);
+  const [detailModal,   setDetailModal]   = useState<DetailModal | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   const optionTypes = Object.keys(options).sort();
+
+  const filteredOptionTypes = useMemo(() => {
+    if (!primaryGroup) return optionTypes;
+    const groupTypes = new Set(
+      OPTION_TYPE_GROUPS.find(g => g.label === primaryGroup)?.types ?? []
+    );
+    return optionTypes.filter(t => groupTypes.has(t));
+  }, [primaryGroup, optionTypes]); // eslint-disable-line
 
   // ── 테마 ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -205,11 +277,6 @@ function App() {
       .then(res => {
         const data: OptionsMap = res.data;
         setOptions(data);
-        const types = Object.keys(data).sort();
-        if (types.length > 0) {
-          setPrimaryType(types[0]);
-          setPrimarySubType((data[types[0]] || [])[0] ?? '');
-        }
       })
       .catch(() => setError('백엔드 서버에서 옵션 목록을 가져올 수 없습니다.'))
       .finally(() => setOptionsLoading(false));
@@ -264,6 +331,15 @@ function App() {
     setPrimaryEffect('');
     setFocusedSlot(null);
     setEffectFocused(false);
+  };
+
+  const handlePrimaryGroupChange = (group: string) => {
+    setPrimaryGroup(group);
+    if (group) {
+      const groupTypes = (OPTION_TYPE_GROUPS.find(g => g.label === group)?.types ?? [])
+        .filter(t => optionTypes.includes(t));
+      handlePrimaryTypeChange(groupTypes[0] ?? '');
+    }
   };
 
   const updatePrimarySlot = (i: 0 | 1 | 2, v: string) => {
@@ -324,6 +400,7 @@ function App() {
     setChartData(null);
     setColorData(null);
     setCategoricalData(null);
+    setDetailModal(null);
 
     let optionId: string;
     let slotAnds: AndCondition[] = [];
@@ -367,6 +444,8 @@ function App() {
       ? `[${selectedCategory}]`
       : (itemName.trim() || '(전체)');
 
+    setLastSearch({ optionId, searchParam: searchParam as Record<string, string | undefined>, andStr });
+
     axios.get(`${API_BASE_URL}/graph-data`, {
       params: { option_id: optionId, ...searchParam, ...(andStr && { and_options: andStr }) },
     })
@@ -396,6 +475,40 @@ function App() {
       .catch(() => setError('데이터를 가져오는 중 오류가 발생했습니다. 아이템 이름이 정확한지 확인해주세요.'))
       .finally(() => setLoading(false));
   };
+
+  // ── 매물 상세 조회 ─────────────────────────────────────────────────────────
+
+  const fetchItemDetails = useCallback((value: string, search: LastSearch) => {
+    setDetailLoading(true);
+    setDetailModal({ value, items: [] });
+
+    axios.get(`${API_BASE_URL}/item-list`, {
+      params: {
+        option_id: search.optionId,
+        ...search.searchParam,
+        ...(search.andStr && { and_options: search.andStr }),
+        value,
+      },
+    })
+      .then(res => {
+        if (res.data.error) setDetailModal(null);
+        else setDetailModal({ value, items: res.data.items || [] });
+      })
+      .catch(() => setDetailModal(null))
+      .finally(() => setDetailLoading(false));
+  }, []); // eslint-disable-line
+
+  const handleNumericClick = useCallback((_: any, elements: any[]) => {
+    if (!elements.length || !chartData || !lastSearch) return;
+    const value = String(chartData.labels[elements[0].index]);
+    fetchItemDetails(value, lastSearch);
+  }, [chartData, lastSearch, fetchItemDetails]);
+
+  const handleCategoricalClick = useCallback((_: any, elements: any[]) => {
+    if (!elements.length || !categoricalData || !lastSearch) return;
+    const value = categoricalData.labels[elements[0].index];
+    fetchItemDetails(value, lastSearch);
+  }, [categoricalData, lastSearch, fetchItemDetails]);
 
   // ── 색상 정렬 ──────────────────────────────────────────────────────────────
   const sortedColors = useMemo(() =>
@@ -459,7 +572,7 @@ function App() {
     responsive: true,
     plugins: {
       legend: { position: 'top' as const, labels: { color: chartColors.text } },
-      title:  { display: true, text: `${resultLabel} 최저가`, color: chartColors.text },
+      title:  { display: true, text: `${resultLabel} 최저가 — 점을 클릭하면 매물 목록을 볼 수 있습니다`, color: chartColors.text },
     },
     scales: {
       x: { ticks: { color: chartColors.ticks }, grid: { color: chartColors.grid } },
@@ -467,6 +580,10 @@ function App() {
         ticks: { color: chartColors.ticks, callback: (v: any) => fmt(Number(v)) },
         grid:  { color: chartColors.grid },
       },
+    },
+    onClick: handleNumericClick,
+    onHover: (_: any, elements: any[], chart: any) => {
+      if (chart?.canvas) chart.canvas.style.cursor = elements.length ? 'pointer' : 'default';
     },
   };
 
@@ -510,7 +627,7 @@ function App() {
     responsive: true,
     plugins: {
       legend: { display: false },
-      title:  { display: true, text: `${resultLabel} — 인챈트별 최저가`, color: chartColors.text },
+      title:  { display: true, text: `${resultLabel} — 인챈트별 최저가 — 막대를 클릭하면 매물 목록을 볼 수 있습니다`, color: chartColors.text },
       tooltip: { callbacks: { label: (ctx: any) => fmt(ctx.parsed.y) } },
     },
     scales: {
@@ -528,6 +645,39 @@ function App() {
         grid:  { color: chartColors.grid },
       },
     },
+    onClick: handleCategoricalClick,
+    onHover: (_: any, elements: any[], chart: any) => {
+      if (chart?.canvas) chart.canvas.style.cursor = elements.length ? 'pointer' : 'default';
+    },
+  };
+
+  // ── 옵션 타입 그룹 렌더 ───────────────────────────────────────────────────
+  const renderOptionTypeGroups = (availableTypes: string[]) => {
+    const typeSet  = new Set(availableTypes);
+    const assigned = new Set<string>();
+
+    const groups = OPTION_TYPE_GROUPS
+      .map(g => ({ label: g.label, types: g.types.filter(t => typeSet.has(t)) }))
+      .filter(g => g.types.length > 0);
+
+    groups.forEach(g => g.types.forEach(t => assigned.add(t)));
+
+    const rest = availableTypes.filter(t => !assigned.has(t));
+
+    return (
+      <>
+        {groups.map(g => (
+          <optgroup key={g.label} label={g.label}>
+            {g.types.map(t => <option key={t} value={t}>{t}</option>)}
+          </optgroup>
+        ))}
+        {rest.length > 0 && (
+          <optgroup label="기타">
+            {rest.map(t => <option key={t} value={t}>{t}</option>)}
+          </optgroup>
+        )}
+      </>
+    );
   };
 
   // ── 서브컴포넌트 ──────────────────────────────────────────────────────────
@@ -622,8 +772,16 @@ function App() {
           <div className="option-row primary-row">
             <span className="option-label">그래프 기준</span>
             <div className="option-selects">
+              <select value={primaryGroup} onChange={e => handlePrimaryGroupChange(e.target.value)} disabled={optionsLoading}>
+                <option value="">전체</option>
+                {OPTION_TYPE_GROUPS
+                  .filter(g => g.types.some(t => optionTypes.includes(t)))
+                  .map(g => <option key={g.label} value={g.label}>{g.label}</option>)
+                }
+              </select>
               <select value={primaryType} onChange={e => handlePrimaryTypeChange(e.target.value)} disabled={optionsLoading}>
-                {optionTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                <option value="">선택</option>
+                {filteredOptionTypes.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
               {/* 일반 타입: 서브타입 드롭다운 */}
               {!isSlotTyped(primaryType) && (
@@ -684,7 +842,7 @@ function App() {
               <span className="option-label and-label">AND</span>
               <div className="option-selects">
                 <select value={cond.type} onChange={e => updateAndCond(i, 'type', e.target.value)} disabled={optionsLoading}>
-                  {optionTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                  {renderOptionTypeGroups(optionTypes)}
                 </select>
 
                 {isSlotTyped(cond.type) ? (
@@ -875,6 +1033,67 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* ── 매물 상세 모달 ──────────────────────────────────────────────────── */}
+      {detailModal && (
+        <div className="detail-overlay" onClick={() => setDetailModal(null)}>
+          <div className="detail-modal" onClick={e => e.stopPropagation()}>
+
+            <div className="detail-modal-header">
+              <h3>
+                <span className="detail-modal-item">{resultLabel.split(' / ')[0]}</span>
+                <span className="detail-modal-value"> — {detailModal.value}</span>
+              </h3>
+              <button className="detail-close-btn" onClick={() => setDetailModal(null)}>✕</button>
+            </div>
+
+            {detailLoading ? (
+              <div className="detail-status">불러오는 중…</div>
+            ) : detailModal.items.length === 0 ? (
+              <div className="detail-status">매물을 찾을 수 없습니다.</div>
+            ) : (
+              <>
+                <div className="detail-count">{detailModal.items.length}개 매물</div>
+                <div className="detail-list">
+                  {detailModal.items.map((item, i) => (
+                    <div key={i} className="detail-item-card">
+                      <div className="detail-item-head">
+                        <span className="detail-item-name">{item.item_name}</span>
+                        <span className="detail-item-price">{fmt(item.price)}</span>
+                      </div>
+                      <div className="detail-item-opts">
+                        {item.options.map((opt, j) => {
+                          const isReforge  = opt.type === '세공 옵션';
+                          const isEnchant  = opt.type === '인챈트';
+                          const isNumSub   = /^\d+$/.test(opt.sub_type ?? '');
+                          const label = isReforge
+                            ? opt.value
+                            : isNumSub || !opt.sub_type
+                              ? `${opt.type}: ${opt.value}`
+                              : `${opt.type} (${opt.sub_type}): ${opt.value}`;
+                          return (
+                            <span
+                              key={j}
+                              className={`detail-opt-tag${isReforge ? ' tag-reforge' : isEnchant ? ' tag-enchant' : ''}`}
+                            >
+                              {label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      {item.auction_end_date && (
+                        <div className="detail-item-expire">
+                          만료: {new Date(item.auction_end_date).toLocaleString('ko-KR')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

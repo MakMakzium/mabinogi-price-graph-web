@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.responses import StreamingResponse
 from api_logic import get_price_graph_data, get_item_list, stream_price_graph_data, CATEGORICAL_TYPES, COLOR_TYPES
-from api_client import get_headers
+from api_client import get_headers, nexon_limiter
 
 app = FastAPI()
 
@@ -95,6 +95,7 @@ async def _fetch_slot_sub_options(option_type: str) -> List[str]:
         for category in categories:
             for page in range(1, 4):  # 카테고리당 최대 3페이지
                 try:
+                    await nexon_limiter.acquire()
                     async with session.get(
                         "https://open.api.nexon.com/mabinogi/v1/auction/list",
                         headers=get_headers(),
@@ -243,6 +244,7 @@ async def search_items(keyword: str):
 
     try:
         async with aiohttp.ClientSession() as session:
+            await nexon_limiter.acquire()
             async with session.get(
                 "https://open.api.nexon.com/mabinogi/v1/auction/keyword-search",
                 headers=get_headers(),

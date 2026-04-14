@@ -808,7 +808,7 @@ function App() {
             </select>
           )}
 
-          <button className="btn-primary" onClick={handleFetch} disabled={loading || optionsLoading}>
+          <button className="btn-primary" onClick={handleFetch} disabled={optionsLoading}>
             {loading
               ? scanned != null ? `스캔 중… ${scanned.toLocaleString()}건` : '불러오는 중…'
               : '그래프 생성'}

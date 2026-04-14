@@ -19,12 +19,12 @@ import re
 import aiohttp
 from typing import AsyncGenerator, AsyncIterator, List, Dict, Any, Optional, Tuple
 
-from api_client import get_headers
+from api_client import get_headers, nexon_limiter
 
 COLOR_TYPES = {"아이템 색상", "색상"}
 
 # option_value 자체가 이름(문자열)이어서 수치 그래프 대신 이름 → 가격 비교로 표시할 타입
-CATEGORICAL_TYPES = {"인챈트"}
+CATEGORICAL_TYPES = {"인챈트", "인챈트 종류", "인챈트 불가능"}
 
 
 # ── RGB 유틸리티 ───────────────────────────────────────────────────────────────
@@ -45,10 +45,14 @@ def rgb_to_hex(r: int, g: int, b: int) -> str:
 # ── 수치 추출 ──────────────────────────────────────────────────────────────────
 
 def extract_numeric_value(option: Dict[str, Any]) -> Optional[int]:
-    val = str(option.get("option_value", ""))
+    val = str(option.get("option_value", "")).strip()
     m = re.search(r'(\d+)\s*(?:레벨|단계|증가)?', val)
     if m:
         return int(m.group(1))
+    # option_value에 텍스트가 있으면 option_value2를 숫자 추출에 사용하지 않음
+    # (문자열 값 타입인데 value2의 숫자를 잘못 추출하는 것을 방지)
+    if val and val.lower() != "none":
+        return None
     v2 = str(option.get("option_value2", ""))
     if v2 and v2 != "None":
         m2 = re.search(r'\d+', v2)
@@ -137,6 +141,7 @@ async def _fetch_category_page(
     async with sem:
         for attempt in range(3):
             try:
+                await nexon_limiter.acquire()
                 async with session.get(
                     url, headers=get_headers(),
                     params={"first_category": category, "page": page},
@@ -166,6 +171,7 @@ async def _iter_items_by_name(
         data = None
         for attempt in range(3):
             try:
+                await nexon_limiter.acquire()
                 async with session.get(url, headers=get_headers(), params=params) as resp:
                     if resp.status == 429:
                         wait = 2 ** attempt
@@ -190,12 +196,11 @@ async def _iter_items_by_name(
         for item in items:
             yield item
         total += len(items)
-        if total >= 50000:
+        if total >= 200000:
             break
         cur = data.get("next_cursor")
         if cur:
             params["cursor"] = cur
-            await asyncio.sleep(0.4)
         else:
             break
 
@@ -205,7 +210,7 @@ async def _iter_items_by_categories(
     categories: List[str],
 ) -> AsyncIterator[Dict[str, Any]]:
     """카테고리 검색 — 5페이지씩 병렬 fetch하고 즉시 yield합니다."""
-    sem = asyncio.Semaphore(5)
+    sem = asyncio.Semaphore(20)
 
     for category in categories:
         first_page = await _fetch_category_page(session, category, 1, sem)
@@ -231,6 +236,61 @@ async def _iter_items_by_categories(
             page += 5
             if done or page > 401:
                 break
+
+
+# ── 집계 헬퍼 ─────────────────────────────────────────────────────────────────
+
+def _aggregate_item(
+    opts: List[Dict],
+    price: int,
+    primary_type: str,
+    primary_sub: Optional[str],
+    price_by_color: Dict[str, int],
+    price_by_name:  Dict[str, int],
+    price_by_val:   Dict[int, int],
+) -> bool:
+    """아이템 옵션을 집계 딕셔너리에 반영하고 found_any를 반환합니다."""
+    if primary_type in COLOR_TYPES:
+        for opt in opts:
+            if not _matches_option(opt, primary_type, primary_sub):
+                continue
+            rgb = parse_rgb(str(opt.get("option_value", "")))
+            if rgb:
+                key = f"{rgb[0]},{rgb[1]},{rgb[2]}"
+                if key not in price_by_color or price < price_by_color[key]:
+                    price_by_color[key] = price
+                return True
+            break
+
+    elif primary_type in CATEGORICAL_TYPES:
+        for opt in opts:
+            if not _matches_option(opt, primary_type, primary_sub):
+                continue
+            name = str(opt.get("option_value") or "").strip()
+            if not name or name.lower() == "none":
+                continue
+            if name not in price_by_name or price < price_by_name[name]:
+                price_by_name[name] = price
+            return True
+
+    else:
+        nv = _find_numeric_value(opts, primary_type, primary_sub)
+        if nv is not None:
+            if nv not in price_by_val or price < price_by_val[nv]:
+                price_by_val[nv] = price
+            return True
+        # 수치 추출 실패 → 문자열 값 폴백 (펫 정보 등 비수치 타입 자동 감지)
+        for opt in opts:
+            if not _matches_option(opt, primary_type, primary_sub):
+                continue
+            name = str(opt.get("option_value") or "").strip()
+            if name and name.lower() != "none":
+                if name not in price_by_name or price < price_by_name[name]:
+                    price_by_name[name] = price
+                return True
+            break
+
+    return False
 
 
 # ── 그래프 데이터 생성 ─────────────────────────────────────────────────────────
@@ -271,47 +331,9 @@ async def get_price_graph_data(
             if and_filters and not passes(opts):
                 continue
 
-            if primary_type in COLOR_TYPES:
-                for opt in opts:
-                    if not _matches_option(opt, primary_type, primary_sub):
-                        continue
-                    rgb = parse_rgb(str(opt.get("option_value", "")))
-                    if rgb:
-                        key = f"{rgb[0]},{rgb[1]},{rgb[2]}"
-                        if key not in price_by_color or price < price_by_color[key]:
-                            price_by_color[key] = price
-                        found_any = True
-                    break
-
-            elif primary_type in CATEGORICAL_TYPES:
-                for opt in opts:
-                    if not _matches_option(opt, primary_type, primary_sub):
-                        continue
-                    name = str(opt.get("option_value") or "").strip()
-                    if not name or name.lower() == "none":
-                        continue
-                    if name not in price_by_name or price < price_by_name[name]:
-                        price_by_name[name] = price
-                    found_any = True
-                    break
-
-            else:
-                nv = _find_numeric_value(opts, primary_type, primary_sub)
-                if nv is not None:
-                    if nv not in price_by_val or price < price_by_val[nv]:
-                        price_by_val[nv] = price
-                    found_any = True
-                else:
-                    # 수치 추출 실패 → 문자열 값 폴백 (펫 정보 등 비수치 타입 자동 감지)
-                    for opt in opts:
-                        if not _matches_option(opt, primary_type, primary_sub):
-                            continue
-                        name = str(opt.get("option_value") or "").strip()
-                        if name and name.lower() != "none":
-                            if name not in price_by_name or price < price_by_name[name]:
-                                price_by_name[name] = price
-                            found_any = True
-                        break
+            if _aggregate_item(opts, price, primary_type, primary_sub,
+                               price_by_color, price_by_name, price_by_val):
+                found_any = True
 
     if not found_any:
         return {"error": "해당 조건을 만족하는 아이템 매물을 찾을 수 없습니다."}
@@ -382,7 +404,7 @@ async def stream_price_graph_data(
     option_identifier: str,
     and_options: List[str] = None,
     categories: List[str] = None,
-    chunk_size: int = 2500,
+    chunk_size: int = 200500,
 ) -> AsyncGenerator[str, None]:
     """chunk_size 아이템마다 중간 결과를 SSE 포맷으로 yield합니다."""
     primary_type, primary_sub = _parse_option_id(option_identifier)
@@ -416,46 +438,9 @@ async def stream_price_graph_data(
             if and_filters and not passes(opts):
                 continue
 
-            if primary_type in COLOR_TYPES:
-                for opt in opts:
-                    if not _matches_option(opt, primary_type, primary_sub):
-                        continue
-                    rgb = parse_rgb(str(opt.get("option_value", "")))
-                    if rgb:
-                        key = f"{rgb[0]},{rgb[1]},{rgb[2]}"
-                        if key not in price_by_color or price < price_by_color[key]:
-                            price_by_color[key] = price
-                        found_any = True
-                    break
-
-            elif primary_type in CATEGORICAL_TYPES:
-                for opt in opts:
-                    if not _matches_option(opt, primary_type, primary_sub):
-                        continue
-                    name = str(opt.get("option_value") or "").strip()
-                    if not name or name.lower() == "none":
-                        continue
-                    if name not in price_by_name or price < price_by_name[name]:
-                        price_by_name[name] = price
-                    found_any = True
-                    break
-
-            else:
-                nv = _find_numeric_value(opts, primary_type, primary_sub)
-                if nv is not None:
-                    if nv not in price_by_val or price < price_by_val[nv]:
-                        price_by_val[nv] = price
-                    found_any = True
-                else:
-                    for opt in opts:
-                        if not _matches_option(opt, primary_type, primary_sub):
-                            continue
-                        name = str(opt.get("option_value") or "").strip()
-                        if name and name.lower() != "none":
-                            if name not in price_by_name or price < price_by_name[name]:
-                                price_by_name[name] = price
-                            found_any = True
-                        break
+            if _aggregate_item(opts, price, primary_type, primary_sub,
+                               price_by_color, price_by_name, price_by_val):
+                found_any = True
 
             item_count += 1
             if item_count % chunk_size == 0 and found_any:

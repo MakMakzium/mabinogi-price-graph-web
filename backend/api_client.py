@@ -2,8 +2,10 @@
 봇의 modules/api.py 구조를 참고한 API 키 관리 모듈.
 NEXON_API_KEYS (복수, 콤마 구분) 또는 NEXON_API_KEY (단수) 환경변수를 지원합니다.
 """
+import asyncio
 import itertools
 import os
+import time
 from typing import List
 
 
@@ -41,3 +43,37 @@ def get_api_key() -> str:
 def get_headers() -> dict:
     """Nexon API 요청에 필요한 헤더를 반환합니다."""
     return {"x-nxopen-api-key": get_api_key()}
+
+
+# ── 전역 토큰 버킷 (Nexon API 2,000 req/s 제한, 최대 500명 동시 사용자 고려) ──
+# 1,800 req/s = 10% 여유. 유저 수에 관계없이 서버 전체 합산 요청 속도를 제한.
+
+class _TokenBucket:
+    """초당 rate개의 요청을 허용하는 토큰 버킷."""
+
+    def __init__(self, rate: float):
+        self._rate = rate
+        self._tokens = float(rate)
+        self._last = time.monotonic()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            now = time.monotonic()
+            self._tokens = min(
+                self._rate,
+                self._tokens + (now - self._last) * self._rate,
+            )
+            self._last = now
+            if self._tokens >= 1:
+                self._tokens -= 1
+                wait = 0.0
+            else:
+                wait = (1 - self._tokens) / self._rate
+                self._tokens = 0
+                self._last += wait  # 다음 refill 기준을 앞당김
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+
+nexon_limiter = _TokenBucket(1800)

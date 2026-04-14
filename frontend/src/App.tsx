@@ -641,17 +641,6 @@ function App() {
 
   useEffect(() => { setCatPage(1); }, [catSearch, catSortDir, catPageSize]);
 
-  const categoricalChartData = categoricalData ? {
-    labels: categoricalData.labels,
-    datasets: [{
-      label: '최저가',
-      data: categoricalData.data,
-      backgroundColor: 'rgba(97, 218, 251, 0.7)',
-      borderColor: 'rgb(97, 218, 251)',
-      borderWidth: 1,
-    }],
-  } : null;
-
   const categoricalOptions = {
     responsive: true,
     plugins: {

@@ -248,6 +248,9 @@ function App() {
   const [lastSearch,    setLastSearch]    = useState<LastSearch | null>(null);
   const [detailModal,   setDetailModal]   = useState<DetailModal | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [scanned,       setScanned]       = useState<number | null>(null);
+
+  const esRef = useRef<EventSource | null>(null);
 
   const optionTypes = Object.keys(options).sort();
 
@@ -455,35 +458,62 @@ function App() {
       : (itemName.trim() || '(전체)');
 
     setLastSearch({ optionId, searchParam: searchParam as Record<string, string | undefined>, andStr });
+    setScanned(null);
 
-    axios.get(`${API_BASE_URL}/graph-data`, {
-      params: { option_id: optionId, ...searchParam, ...(andStr && { and_options: andStr }) },
-    })
-      .then(res => {
-        if (res.data.error) { setError(res.data.error); return; }
-        const label = `${res.data.item_name || displayName} / ${condLabel}`;
-        setResultLabel(label);
-        if (res.data.type === 'color') {
-          setColorData(res.data.colors);
-        } else if (res.data.type === 'categorical') {
-          setCategoricalData({ labels: res.data.labels, data: res.data.data });
-        } else {
-          setChartData({
-            labels: res.data.labels,
-            datasets: [{
-              label: `${label} 최저가`,
-              data: res.data.data,
-              borderColor: 'rgb(97, 218, 251)',
-              backgroundColor: 'rgba(97, 218, 251, 0.12)',
-              pointBackgroundColor: 'rgb(97, 218, 251)',
-              pointRadius: 4,
-              tension: 0.3,
-            }],
-          });
-        }
-      })
-      .catch(() => setError('데이터를 가져오는 중 오류가 발생했습니다. 아이템 이름이 정확한지 확인해주세요.'))
-      .finally(() => setLoading(false));
+    // 이전 스트림 정리
+    if (esRef.current) { esRef.current.close(); esRef.current = null; }
+
+    const rawParams: Record<string, string> = { option_id: optionId };
+    Object.entries(searchParam).forEach(([k, v]) => { if (v != null) rawParams[k] = v; });
+    if (andStr) rawParams['and_options'] = andStr;
+    const params = new URLSearchParams(rawParams);
+    const es = new EventSource(`${API_BASE_URL}/graph-data-stream?${params}`);
+    esRef.current = es;
+
+    const applyData = (res: any, label: string) => {
+      if (res.type === 'color') {
+        setColorData(res.colors);
+      } else if (res.type === 'categorical') {
+        setCategoricalData({ labels: res.labels, data: res.data });
+      } else {
+        setChartData({
+          labels: res.labels,
+          datasets: [{
+            label: `${label} 최저가`,
+            data: res.data,
+            borderColor: 'rgb(97, 218, 251)',
+            backgroundColor: 'rgba(97, 218, 251, 0.12)',
+            pointBackgroundColor: 'rgb(97, 218, 251)',
+            pointRadius: 4,
+            tension: 0.3,
+          }],
+        });
+      }
+    };
+
+    es.onmessage = (e) => {
+      const res = JSON.parse(e.data);
+      if (res.error) {
+        setError(res.error);
+        es.close(); esRef.current = null;
+        setLoading(false);
+        return;
+      }
+      const label = `${res.item_name || displayName} / ${condLabel}`;
+      setResultLabel(label);
+      if (res.scanned != null) setScanned(res.scanned);
+      applyData(res, label);
+      if (res.done) {
+        es.close(); esRef.current = null;
+        setLoading(false);
+      }
+    };
+
+    es.onerror = () => {
+      setError('데이터를 가져오는 중 오류가 발생했습니다. 아이템 이름이 정확한지 확인해주세요.');
+      es.close(); esRef.current = null;
+      setLoading(false);
+    };
   };
 
   // ── 매물 상세 조회 ─────────────────────────────────────────────────────────
@@ -779,7 +809,9 @@ function App() {
           )}
 
           <button className="btn-primary" onClick={handleFetch} disabled={loading || optionsLoading}>
-            {loading ? '불러오는 중…' : '그래프 생성'}
+            {loading
+              ? scanned != null ? `스캔 중… ${scanned.toLocaleString()}건` : '불러오는 중…'
+              : '그래프 생성'}
           </button>
         </div>
 

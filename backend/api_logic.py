@@ -14,9 +14,10 @@
   option_value가 "(R,G,B)" 형태 → type: "color" 응답으로 분기
 """
 import asyncio
+import json
 import re
 import aiohttp
-from typing import AsyncIterator, List, Dict, Any, Optional, Tuple
+from typing import AsyncGenerator, AsyncIterator, List, Dict, Any, Optional, Tuple
 
 from api_client import get_headers
 
@@ -228,7 +229,7 @@ async def _iter_items_by_categories(
                     break
 
             page += 5
-            if done:
+            if done or page > 401:
                 break
 
 
@@ -315,6 +316,20 @@ async def get_price_graph_data(
     if not found_any:
         return {"error": "해당 조건을 만족하는 아이템 매물을 찾을 수 없습니다."}
 
+    return _build_result(
+        primary_type, option_identifier, item_name,
+        price_by_color, price_by_name, price_by_val,
+    )
+
+
+def _build_result(
+    primary_type: str,
+    option_identifier: str,
+    item_name: str,
+    price_by_color: Dict[str, int],
+    price_by_name:  Dict[str, int],
+    price_by_val:   Dict[int, int],
+) -> Dict[str, Any]:
     # ── 색상 결과 ────────────────────────────────────────────────────────────
     if primary_type in COLOR_TYPES:
         sorted_colors = sorted(price_by_color.items(), key=lambda x: x[1])
@@ -358,6 +373,111 @@ async def get_price_graph_data(
         "item_name": item_name,
         "option_name": option_identifier,
     }
+
+
+# ── 스트리밍 그래프 데이터 ──────────────────────────────────────────────────────
+
+async def stream_price_graph_data(
+    item_name: str,
+    option_identifier: str,
+    and_options: List[str] = None,
+    categories: List[str] = None,
+    chunk_size: int = 2500,
+) -> AsyncGenerator[str, None]:
+    """chunk_size 아이템마다 중간 결과를 SSE 포맷으로 yield합니다."""
+    primary_type, primary_sub = _parse_option_id(option_identifier)
+
+    and_filters: List[Tuple[str, Optional[str], Optional[str]]] = [
+        _parse_condition(c) for c in (and_options or [])
+    ]
+
+    def passes(item_opts: List[Dict]) -> bool:
+        return all(_item_has_option(item_opts, t, s, v) for t, s, v in and_filters)
+
+    price_by_color: Dict[str, int] = {}
+    price_by_name:  Dict[str, int] = {}
+    price_by_val:   Dict[int, int] = {}
+    found_any  = False
+    item_count = 0
+
+    async with aiohttp.ClientSession() as session:
+        if item_name:
+            item_iter = _iter_items_by_name(session, item_name)
+        elif categories:
+            item_iter = _iter_items_by_categories(session, categories)
+        else:
+            yield f"data: {json.dumps({'error': '아이템 이름을 입력해주세요.'}, ensure_ascii=False)}\n\n"
+            return
+
+        async for item in item_iter:
+            opts  = item.get("item_option") or []
+            price = item.get("auction_price_per_unit", 0)
+
+            if and_filters and not passes(opts):
+                continue
+
+            if primary_type in COLOR_TYPES:
+                for opt in opts:
+                    if not _matches_option(opt, primary_type, primary_sub):
+                        continue
+                    rgb = parse_rgb(str(opt.get("option_value", "")))
+                    if rgb:
+                        key = f"{rgb[0]},{rgb[1]},{rgb[2]}"
+                        if key not in price_by_color or price < price_by_color[key]:
+                            price_by_color[key] = price
+                        found_any = True
+                    break
+
+            elif primary_type in CATEGORICAL_TYPES:
+                for opt in opts:
+                    if not _matches_option(opt, primary_type, primary_sub):
+                        continue
+                    name = str(opt.get("option_value") or "").strip()
+                    if not name or name.lower() == "none":
+                        continue
+                    if name not in price_by_name or price < price_by_name[name]:
+                        price_by_name[name] = price
+                    found_any = True
+                    break
+
+            else:
+                nv = _find_numeric_value(opts, primary_type, primary_sub)
+                if nv is not None:
+                    if nv not in price_by_val or price < price_by_val[nv]:
+                        price_by_val[nv] = price
+                    found_any = True
+                else:
+                    for opt in opts:
+                        if not _matches_option(opt, primary_type, primary_sub):
+                            continue
+                        name = str(opt.get("option_value") or "").strip()
+                        if name and name.lower() != "none":
+                            if name not in price_by_name or price < price_by_name[name]:
+                                price_by_name[name] = price
+                            found_any = True
+                        break
+
+            item_count += 1
+            if item_count % chunk_size == 0 and found_any:
+                partial = _build_result(
+                    primary_type, option_identifier, item_name,
+                    price_by_color, price_by_name, price_by_val,
+                )
+                partial["partial"] = True
+                partial["scanned"] = item_count
+                yield f"data: {json.dumps(partial, ensure_ascii=False)}\n\n"
+
+    if not found_any:
+        yield f"data: {json.dumps({'error': '해당 조건을 만족하는 아이템 매물을 찾을 수 없습니다.'}, ensure_ascii=False)}\n\n"
+        return
+
+    final = _build_result(
+        primary_type, option_identifier, item_name,
+        price_by_color, price_by_name, price_by_val,
+    )
+    final["done"] = True
+    final["scanned"] = item_count
+    yield f"data: {json.dumps(final, ensure_ascii=False)}\n\n"
 
 
 # ── 매물 상세 목록 ──────────────────────────────────────────────────────────────

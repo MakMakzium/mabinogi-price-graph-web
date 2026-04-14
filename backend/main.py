@@ -9,7 +9,8 @@ import aiohttp
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api_logic import get_price_graph_data, get_item_list, CATEGORICAL_TYPES, COLOR_TYPES
+from fastapi.responses import StreamingResponse
+from api_logic import get_price_graph_data, get_item_list, stream_price_graph_data, CATEGORICAL_TYPES, COLOR_TYPES
 from api_client import get_headers
 
 app = FastAPI()
@@ -263,6 +264,38 @@ async def search_items(keyword: str):
     except Exception as e:
         print(f"[search-items] 오류: {e}", flush=True)
         return {"names": []}
+
+
+@app.get("/graph-data-stream")
+async def get_graph_data_stream_endpoint(
+    option_id: str,
+    item_name: str = "",
+    category: str = "",
+    and_options: Optional[str] = None,
+):
+    and_list = [o.strip() for o in and_options.split(';') if o.strip()] if and_options else []
+
+    categories: Optional[List[str]] = None
+    resolved_name = item_name.strip()
+
+    if category.strip():
+        categories = [category.strip()]
+    elif not resolved_name:
+        opt_type = option_id.split('|')[0]
+        if opt_type in _FIXED_ITEM_NAMES:
+            resolved_name = _FIXED_ITEM_NAMES[opt_type]
+        else:
+            categories = _EMPTY_SEARCH_CATEGORIES.get(opt_type)
+            if not categories:
+                async def _err():
+                    yield "data: {\"error\": \"이 옵션 타입은 아이템 이름 또는 카테고리가 필요합니다.\"}\n\n"
+                return StreamingResponse(_err(), media_type="text/event-stream")
+
+    return StreamingResponse(
+        stream_price_graph_data(resolved_name, option_id, and_list, categories=categories),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/graph-data")

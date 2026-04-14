@@ -93,7 +93,7 @@ const OPTION_TYPE_GROUPS: { label: string; types: string[] }[] = [
     types: ['공격', '방어력', '마법 방어력', '보호', '마법 보호', '밸런스', '부상률', '크리티컬', '피어싱 레벨'],
   },
   {
-    label: '강화/개조',
+    label: '세공/에르그/개조',
     types: ['세공 옵션', '에르그', '일반 개조', '보석 개조', '특별 개조', '장인 개조'],
   },
   {
@@ -105,15 +105,15 @@ const OPTION_TYPE_GROUPS: { label: string; types: string[] }[] = [
     types: ['색상', '아이템 색상'],
   },
   {
-    label: '세트/효과',
-    types: ['사용 효과', '세트 효과'],
+    label: '세트 효과/사용 효과',
+    types: ['세트 효과', '사용 효과'],
   },
   {
     label: '아이템 정보',
     types: ['내구도', '내구력', '숙련', '품질', '크기', '아이템 보호'],
   },
   {
-    label: '거래/제한',
+    label: '전해/거래',
     types: ['남은 거래 횟수', '남은 사용 횟수', '남은 전용 해제 가능 횟수', '전용 해제 거래 보증서 사용 불가'],
   },
   {
@@ -129,7 +129,7 @@ const OPTION_TYPE_GROUPS: { label: string; types: string[] }[] = [
     types: ['무리아스 유물'],
   },
   {
-    label: '음식/허브',
+    label: '음식',
     types: ['조미료 효과'],
   },
   {

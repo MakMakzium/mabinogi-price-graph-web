@@ -636,23 +636,31 @@ function App() {
     const el = colorBarRef.current;
     if (!el) return;
 
+    // 공통 줌 계산: 현재 center를 유지하며 newCount 개만 표시
+    const applyZoom = (
+      prev: { start: number; end: number } | null,
+      total: number,
+      newCount: number,
+    ): { start: number; end: number } | null => {
+      const count = Math.max(2, Math.min(total, newCount));
+      if (count >= total) return null;
+      const s  = prev?.start ?? 0;
+      const en = prev?.end   ?? total - 1;
+      const center = (s + en) / 2;
+      // 중앙 기준으로 start 계산 후 양쪽 끝 초과 방지
+      let ns = Math.round(center - (count - 1) / 2);
+      ns = Math.max(0, Math.min(total - count, ns));
+      return { start: ns, end: ns + count - 1 };
+    };
+
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       const total = barTotalRef.current;
       if (total <= 1) return;
       setBarZoom(prev => {
-        const s = prev?.start ?? 0;
-        const en = prev?.end ?? total - 1;
-        const count = en - s + 1;
-        const center = (s + en) / 2;
-        const newCount = e.deltaY < 0
-          ? Math.max(2, Math.round(count * 0.8))
-          : Math.min(total, Math.round(count * 1.25));
-        if (newCount >= total) return null;
-        const half = newCount / 2;
-        const ns = Math.max(0, Math.round(center - half));
-        const ne = Math.min(total - 1, ns + newCount - 1);
-        return { start: ns, end: ne };
+        const cur = (prev?.end ?? total - 1) - (prev?.start ?? 0) + 1;
+        const factor = e.deltaY < 0 ? 0.8 : 1.25;
+        return applyZoom(prev, total, Math.round(cur * factor));
       });
     };
 
@@ -675,18 +683,11 @@ function App() {
       const ratio = dist / lastDist;
       lastDist = dist;
       const total = barTotalRef.current;
-      if (total <= 1) return;
+      if (total <= 1 || Math.abs(ratio - 1) < 0.01) return;
       setBarZoom(prev => {
-        const s = prev?.start ?? 0;
-        const en = prev?.end ?? total - 1;
-        const count = en - s + 1;
-        const center = (s + en) / 2;
-        const newCount = Math.max(2, Math.min(total, Math.round(count / ratio)));
-        if (newCount >= total) return null;
-        const half = newCount / 2;
-        const ns = Math.max(0, Math.round(center - half));
-        const ne = Math.min(total - 1, ns + newCount - 1);
-        return { start: ns, end: ne };
+        const cur = (prev?.end ?? total - 1) - (prev?.start ?? 0) + 1;
+        // 손가락 간격 증가(ratio>1) = 줌인 → 표시 개수 감소
+        return applyZoom(prev, total, Math.round(cur / ratio));
       });
     };
 

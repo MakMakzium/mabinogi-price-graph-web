@@ -473,8 +473,13 @@ body {
 }
 
 .exact-name-label input[type="checkbox"] {
+  flex: none;
   width: 15px;
   height: 15px;
+  padding: 0;
+  border: initial;
+  border-radius: initial;
+  background: initial;
   cursor: pointer;
   accent-color: var(--accent);
 }

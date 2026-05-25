@@ -239,11 +239,13 @@ function App() {
   const [inlineItemsPerRow, setInlineItemsPerRow] = useState(8);
   const [searchHex,  setSearchHex] = useState('#000000');
 
-  const [colorZoom, setColorZoom] = useState(1.0);
+  const [exactItemName, setExactItemName] = useState(false);
+  const [barZoom,       setBarZoom]       = useState<{ start: number; end: number } | null>(null);
 
-  const carouselRef     = useRef<HTMLDivElement>(null);
-  const cardRefs        = useRef<(HTMLDivElement | null)[]>([]);
-  const colorDisplayRef = useRef<HTMLDivElement>(null);
+  const carouselRef   = useRef<HTMLDivElement>(null);
+  const cardRefs      = useRef<(HTMLDivElement | null)[]>([]);
+  const colorBarRef   = useRef<HTMLDivElement>(null);
+  const barTotalRef   = useRef(0);
 
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
@@ -415,7 +417,6 @@ function App() {
     setError(null);
     setChartData(null);
     setColorData(null);
-    setColorZoom(1.0);
     setCategoricalData(null);
     setDetailModal(null);
 
@@ -455,7 +456,10 @@ function App() {
 
     const searchParam = searchMode === 'category'
       ? { category: selectedCategory }
-      : { item_name: itemName.trim() };
+      : {
+          item_name: itemName.trim(),
+          ...(exactItemName && itemName.trim() ? { exact_name: 'true' } : {}),
+        };
 
     const displayName = searchMode === 'category'
       ? `[${selectedCategory}]`
@@ -564,57 +568,9 @@ function App() {
   // 새 categorical 결과가 올 때 초기화
   useEffect(() => { setCatSearch(''); setCatPage(1); }, [categoricalData]);
 
-  // 새 색상 결과가 올 때 퀵서치·페이지 초기화
-  useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1); }, [colorData]);
+  // 새 색상 결과가 올 때 퀵서치·페이지·줌 초기화
+  useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1); setBarZoom(null); }, [colorData]);
   useEffect(() => { setInlinePage(1); }, [sortDir, inlinePageSize, inlineItemsPerRow]);
-
-  // 색상 결과 영역 마우스 휠 줌 / 모바일 핀치 줌
-  const colorResultVisible = !!colorData && colorData.length > 0;
-  useEffect(() => {
-    const el = colorDisplayRef.current;
-    if (!el) return;
-
-    const handleWheel = (e: WheelEvent) => {
-      if ((e.target as HTMLElement).closest('.color-carousel')) return;
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.1 : 0.1;
-      setColorZoom(prev => Math.max(0.5, Math.min(3.0, parseFloat((prev + delta).toFixed(1)))));
-    };
-
-    let lastDist: number | null = null;
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        lastDist = Math.sqrt(dx * dx + dy * dy);
-      }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 2 || lastDist === null) return;
-      e.preventDefault();
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      setColorZoom(prev => Math.max(0.5, Math.min(3.0, prev * (dist / lastDist!))));
-      lastDist = dist;
-    };
-
-    const handleTouchEnd = () => { lastDist = null; };
-
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    el.addEventListener('touchstart', handleTouchStart, { passive: true });
-    el.addEventListener('touchmove', handleTouchMove, { passive: false });
-    el.addEventListener('touchend', handleTouchEnd);
-
-    return () => {
-      el.removeEventListener('wheel', handleWheel);
-      el.removeEventListener('touchstart', handleTouchStart);
-      el.removeEventListener('touchmove', handleTouchMove);
-      el.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [colorResultVisible]); // eslint-disable-line
 
   // 퀵서치: 입력 색상과 가장 가까운 색상 인덱스 (유클리드 거리)
   const matchedIdx = useMemo(() => {
@@ -654,6 +610,100 @@ function App() {
       borderWidth: 1,
     }],
   } : null;
+
+  // 바 차트 줌: barZoom 범위에 해당하는 데이터만 잘라서 사용
+  barTotalRef.current = colorBarData?.labels.length ?? 0;
+  const visibleColorBarData = useMemo(() => {
+    if (!colorBarData) return null;
+    if (!barZoom) return colorBarData;
+    const { start, end } = barZoom;
+    const bg = colorBarData.datasets[0].backgroundColor as string[];
+    const bc = colorBarData.datasets[0].borderColor as string[];
+    return {
+      labels: colorBarData.labels.slice(start, end + 1),
+      datasets: [{
+        ...colorBarData.datasets[0],
+        data: (colorBarData.datasets[0].data as number[]).slice(start, end + 1),
+        backgroundColor: bg.slice(start, end + 1),
+        borderColor: bc.slice(start, end + 1),
+      }],
+    };
+  }, [colorBarData, barZoom]);
+
+  // 바 차트 마우스 휠 줌 / 모바일 핀치 줌
+  const barChartActive = colorView === 'bar' && !!colorBarData;
+  useEffect(() => {
+    const el = colorBarRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const total = barTotalRef.current;
+      if (total <= 1) return;
+      setBarZoom(prev => {
+        const s = prev?.start ?? 0;
+        const en = prev?.end ?? total - 1;
+        const count = en - s + 1;
+        const center = (s + en) / 2;
+        const newCount = e.deltaY < 0
+          ? Math.max(2, Math.round(count * 0.8))
+          : Math.min(total, Math.round(count * 1.25));
+        if (newCount >= total) return null;
+        const half = newCount / 2;
+        const ns = Math.max(0, Math.round(center - half));
+        const ne = Math.min(total - 1, ns + newCount - 1);
+        return { start: ns, end: ne };
+      });
+    };
+
+    let lastDist: number | null = null;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastDist = Math.sqrt(dx * dx + dy * dy);
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || lastDist === null) return;
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const ratio = dist / lastDist;
+      lastDist = dist;
+      const total = barTotalRef.current;
+      if (total <= 1) return;
+      setBarZoom(prev => {
+        const s = prev?.start ?? 0;
+        const en = prev?.end ?? total - 1;
+        const count = en - s + 1;
+        const center = (s + en) / 2;
+        const newCount = Math.max(2, Math.min(total, Math.round(count / ratio)));
+        if (newCount >= total) return null;
+        const half = newCount / 2;
+        const ns = Math.max(0, Math.round(center - half));
+        const ne = Math.min(total - 1, ns + newCount - 1);
+        return { start: ns, end: ne };
+      });
+    };
+
+    const handleTouchEnd = () => { lastDist = null; };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    el.addEventListener('touchstart', handleTouchStart, { passive: true });
+    el.addEventListener('touchmove', handleTouchMove, { passive: false });
+    el.addEventListener('touchend', handleTouchEnd);
+
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchmove', handleTouchMove);
+      el.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [barChartActive]); // eslint-disable-line
 
   // ── 캐러셀 버튼 ──────────────────────────────────────────────────────────
   const scrollCarousel = (dir: 'prev' | 'next') => {
@@ -837,18 +887,28 @@ function App() {
           </div>
 
           {searchMode === 'name' ? (
-            <ComboboxInput
-              value={itemName}
-              onChange={setItemName}
-              suggestions={itemSuggestions}
-              placeholder={
-                EMPTY_SEARCH_ALLOWED.has(primaryType)
-                  ? '아이템 이름 입력 (비워두면 전체 검색)'
-                  : '아이템 이름 입력 (예: 나이트브링어 인퀴지터)'
-              }
-              loading={itemSearchLoading}
-              onKeyDown={e => e.key === 'Enter' && handleFetch()}
-            />
+            <>
+              <ComboboxInput
+                value={itemName}
+                onChange={setItemName}
+                suggestions={itemSuggestions}
+                placeholder={
+                  EMPTY_SEARCH_ALLOWED.has(primaryType)
+                    ? '아이템 이름 입력 (비워두면 전체 검색)'
+                    : '아이템 이름 입력 (예: 나이트브링어 인퀴지터)'
+                }
+                loading={itemSearchLoading}
+                onKeyDown={e => e.key === 'Enter' && handleFetch()}
+              />
+              <label className="exact-name-label">
+                <input
+                  type="checkbox"
+                  checked={exactItemName}
+                  onChange={e => setExactItemName(e.target.checked)}
+                />
+                아이템명 일치
+              </label>
+            </>
           ) : (
             <select
               className="category-select"
@@ -1053,11 +1113,7 @@ function App() {
 
         {/* 색상 결과 */}
         {colorData && colorData.length > 0 && (
-          <div
-            className="chart-container"
-            ref={colorDisplayRef}
-            style={{ '--color-zoom': colorZoom } as React.CSSProperties}
-          >
+          <div className="chart-container">
 
             {/* 헤더: 타이틀 + 뷰 토글 + 정렬 */}
             <div className="color-controls">
@@ -1183,8 +1239,18 @@ function App() {
             )}
 
             {/* 바 차트 뷰 */}
-            {colorView === 'bar' && colorBarData && (
-              <Bar options={barOptions} data={colorBarData} />
+            {colorView === 'bar' && visibleColorBarData && (
+              <div ref={colorBarRef} className="color-bar-zoom-wrap">
+                <div className="color-bar-zoom-controls">
+                  <span className="color-bar-zoom-hint">마우스 휠 · 핀치로 확대/축소</span>
+                  {barZoom && (
+                    <button className="bar-zoom-reset-btn" onClick={() => setBarZoom(null)}>
+                      줌 초기화
+                    </button>
+                  )}
+                </div>
+                <Bar options={barOptions} data={visibleColorBarData} />
+              </div>
             )}
 
           </div>

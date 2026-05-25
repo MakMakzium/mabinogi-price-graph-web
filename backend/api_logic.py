@@ -300,6 +300,7 @@ async def get_price_graph_data(
     option_identifier: str,
     and_options: List[str] = None,
     categories: List[str] = None,
+    exact_name: bool = False,
 ) -> Dict[str, Any]:
     primary_type, primary_sub = _parse_option_id(option_identifier)
 
@@ -325,8 +326,14 @@ async def get_price_graph_data(
             return {"error": "아이템 이름을 입력해주세요."}
 
         async for item in item_iter:
-            if item_name and item_name not in item.get("item_name", ""):
-                continue
+            if item_name:
+                api_name = item.get("item_name", "")
+                if exact_name:
+                    if api_name != item_name:
+                        continue
+                else:
+                    if item_name not in api_name:
+                        continue
 
             opts  = item.get("item_option") or []
             price = item.get("auction_price_per_unit", 0)
@@ -408,6 +415,7 @@ async def stream_price_graph_data(
     and_options: List[str] = None,
     categories: List[str] = None,
     chunk_size: int = 200500,
+    exact_name: bool = False,
 ) -> AsyncGenerator[str, None]:
     """chunk_size 아이템마다 중간 결과를 SSE 포맷으로 yield합니다."""
     primary_type, primary_sub = _parse_option_id(option_identifier)
@@ -435,8 +443,14 @@ async def stream_price_graph_data(
             return
 
         async for item in item_iter:
-            if item_name and item_name not in item.get("item_name", ""):
-                continue
+            if item_name:
+                api_name = item.get("item_name", "")
+                if exact_name:
+                    if api_name != item_name:
+                        continue
+                else:
+                    if item_name not in api_name:
+                        continue
 
             opts  = item.get("item_option") or []
             price = item.get("auction_price_per_unit", 0)
@@ -480,6 +494,7 @@ async def get_item_list(
     and_options: List[str] = None,
     categories: List[str] = None,
     limit: int = 50,
+    exact_name: bool = False,
 ) -> Dict[str, Any]:
     """특정 옵션 값을 가진 아이템 매물 목록을 반환합니다."""
     primary_type, primary_sub = _parse_option_id(option_identifier)
@@ -514,8 +529,14 @@ async def get_item_list(
             if len(results) >= limit:
                 break
 
-            if item_name and item_name not in item.get("item_name", ""):
-                continue
+            if item_name:
+                api_name = item.get("item_name", "")
+                if exact_name:
+                    if api_name != item_name:
+                        continue
+                else:
+                    if item_name not in api_name:
+                        continue
 
             opts = item.get("item_option") or []
 

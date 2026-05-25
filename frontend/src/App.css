@@ -460,6 +460,25 @@ body {
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
+.exact-name-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  color: var(--text-2);
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.exact-name-label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
 /* ── 기본 버튼 ────────────────────────────────────────────────────────────── */
 
 .btn-primary {
@@ -927,7 +946,7 @@ body {
 }
 
 .color-card {
-  flex: 0 0 calc(128px * var(--color-zoom, 1));
+  flex: 0 0 128px;
   scroll-snap-align: start;
   border-radius: 10px;
   border: 2px solid var(--border);
@@ -949,7 +968,7 @@ body {
 
 .color-card-swatch {
   width: 100%;
-  height: calc(80px * var(--color-zoom, 1));
+  height: 80px;
 }
 
 .color-card-info {
@@ -1003,8 +1022,8 @@ body {
 /* ── 반응형 ────────────────────────────────────────────────────────────────── */
 
 @media (max-width: 480px) {
-  .color-card { flex: 0 0 calc(108px * var(--color-zoom, 1)); }
-  .color-card-swatch { height: calc(64px * var(--color-zoom, 1)); }
+  .color-card { flex: 0 0 108px; }
+  .color-card-swatch { height: 64px; }
 }
 
 @media (max-width: 640px) {
@@ -1047,11 +1066,46 @@ body {
   }
 }
 
+/* ── 바 차트 줌 ─────────────────────────────────────────────────────────── */
+
+.color-bar-zoom-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.color-bar-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.color-bar-zoom-hint {
+  font-size: 0.75rem;
+  color: var(--text-3);
+}
+
+.bar-zoom-reset-btn {
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  border: 1.5px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.bar-zoom-reset-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* ── 색상 스와치 그리드 ───────────────────────────────────────────────────── */
 
 .color-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(calc(116px * var(--color-zoom, 1)), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
   gap: 0.65rem;
 }
 
@@ -1071,7 +1125,7 @@ body {
 
 .color-swatch-box {
   width: 100%;
-  height: calc(62px * var(--color-zoom, 1));
+  height: 62px;
 }
 
 .color-swatch-info {
@@ -1135,7 +1189,7 @@ body {
 
 .inline-color-bar {
   width: 100%;
-  height: calc(80px * var(--color-zoom, 1));
+  height: 80px;
 }
 
 .inline-item-info {

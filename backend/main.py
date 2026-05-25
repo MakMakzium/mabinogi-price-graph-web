@@ -274,6 +274,7 @@ async def get_graph_data_stream_endpoint(
     item_name: str = "",
     category: str = "",
     and_options: Optional[str] = None,
+    exact_name: bool = False,
 ):
     and_list = [o.strip() for o in and_options.split(';') if o.strip()] if and_options else []
 
@@ -294,7 +295,7 @@ async def get_graph_data_stream_endpoint(
                 return StreamingResponse(_err(), media_type="text/event-stream")
 
     return StreamingResponse(
-        stream_price_graph_data(resolved_name, option_id, and_list, categories=categories),
+        stream_price_graph_data(resolved_name, option_id, and_list, categories=categories, exact_name=exact_name),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -306,6 +307,7 @@ async def get_graph_data_endpoint(
     item_name: str = "",
     category: str = "",
     and_options: Optional[str] = None,
+    exact_name: bool = False,
 ):
     # 구분자로 세미콜론(;) 사용 — RGB 값(0,0,0)에 콤마가 포함되므로
     and_list = [o.strip() for o in and_options.split(';') if o.strip()] if and_options else []
@@ -326,7 +328,7 @@ async def get_graph_data_endpoint(
             if not categories:
                 return {"error": "이 옵션 타입은 아이템 이름 또는 카테고리가 필요합니다."}
 
-    data = await get_price_graph_data(resolved_name, option_id, and_list, categories=categories)
+    data = await get_price_graph_data(resolved_name, option_id, and_list, categories=categories, exact_name=exact_name)
     return data
 
 
@@ -338,6 +340,7 @@ async def get_item_list_endpoint(
     category: str = "",
     and_options: Optional[str] = None,
     limit: int = 50,
+    exact_name: bool = False,
 ):
     and_list = [o.strip() for o in and_options.split(';') if o.strip()] if and_options else []
 
@@ -357,6 +360,6 @@ async def get_item_list_endpoint(
 
     data = await get_item_list(
         resolved_name, option_id, value, and_list,
-        categories=categories, limit=min(limit, 100),
+        categories=categories, limit=min(limit, 100), exact_name=exact_name,
     )
     return data

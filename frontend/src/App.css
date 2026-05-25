@@ -1106,6 +1106,24 @@ body {
   color: #fff;
 }
 
+.color-bar-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  cursor: grab;
+}
+
+.color-bar-scroll:active {
+  cursor: grabbing;
+}
+
+.color-bar-scroll::-webkit-scrollbar { height: 5px; }
+.color-bar-scroll::-webkit-scrollbar-track { background: transparent; }
+.color-bar-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
 /* ── 색상 스와치 그리드 ───────────────────────────────────────────────────── */
 
 .color-grid {

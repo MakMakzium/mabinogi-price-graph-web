@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import {
   Chart as ChartJS,
@@ -240,12 +240,15 @@ function App() {
   const [searchHex,  setSearchHex] = useState('#000000');
 
   const [exactItemName, setExactItemName] = useState(false);
-  const [barZoom,       setBarZoom]       = useState<{ start: number; end: number } | null>(null);
+  const [barWidth,      setBarWidth]      = useState(36);
 
-  const carouselRef   = useRef<HTMLDivElement>(null);
-  const cardRefs      = useRef<(HTMLDivElement | null)[]>([]);
-  const colorBarRef   = useRef<HTMLDivElement>(null);
-  const barTotalRef   = useRef(0);
+  const carouselRef    = useRef<HTMLDivElement>(null);
+  const cardRefs       = useRef<(HTMLDivElement | null)[]>([]);
+  const barScrollRef   = useRef<HTMLDivElement>(null);
+  const barWidthRef    = useRef(36);
+  const barInitWRef    = useRef(36);
+  const barTotalRef    = useRef(0);
+  const pendingScrollRef = useRef<number | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
@@ -569,7 +572,10 @@ function App() {
   useEffect(() => { setCatSearch(''); setCatPage(1); }, [categoricalData]);
 
   // 새 색상 결과가 올 때 퀵서치·페이지·줌 초기화
-  useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1); setBarZoom(null); }, [colorData]);
+  useEffect(() => {
+    setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1);
+    setBarWidth(36); barWidthRef.current = 36;
+  }, [colorData]);
   useEffect(() => { setInlinePage(1); }, [sortDir, inlinePageSize, inlineItemsPerRow]);
 
   // 퀵서치: 입력 색상과 가장 가까운 색상 인덱스 (유클리드 거리)
@@ -611,57 +617,50 @@ function App() {
     }],
   } : null, [sortedColors]);
 
-  // 바 차트 줌: barZoom 범위에 해당하는 데이터만 잘라서 사용
   barTotalRef.current = colorBarData?.labels.length ?? 0;
-  const visibleColorBarData = useMemo(() => {
-    if (!colorBarData) return null;
-    if (!barZoom) return colorBarData;
-    const { start, end } = barZoom;
-    const bg = colorBarData.datasets[0].backgroundColor as string[];
-    const bc = colorBarData.datasets[0].borderColor as string[];
-    return {
-      labels: colorBarData.labels.slice(start, end + 1),
-      datasets: [{
-        ...colorBarData.datasets[0],
-        data: (colorBarData.datasets[0].data as number[]).slice(start, end + 1),
-        backgroundColor: bg.slice(start, end + 1),
-        borderColor: bc.slice(start, end + 1),
-      }],
-    };
-  }, [colorBarData, barZoom]);
 
-  // 바 차트 마우스 휠 줌 / 모바일 핀치 줌
+  // 줌 후 스크롤 위치를 DOM 반영 직후 적용
+  useLayoutEffect(() => {
+    if (pendingScrollRef.current !== null && barScrollRef.current) {
+      barScrollRef.current.scrollLeft = pendingScrollRef.current;
+      pendingScrollRef.current = null;
+    }
+  });
+
+  // 바 차트 활성화 시 barWidth 초기화 (전체 바가 뷰포트에 맞도록)
   const barChartActive = colorView === 'bar' && !!colorBarData;
   useEffect(() => {
-    const el = colorBarRef.current;
-    if (!el) return;
+    if (!barChartActive) return;
+    const sc = barScrollRef.current;
+    const total = barTotalRef.current;
+    if (!sc || total === 0) return;
+    const w = Math.max(4, Math.floor(sc.offsetWidth / total));
+    barInitWRef.current = w;
+    barWidthRef.current = w;
+    setBarWidth(w);
+  }, [barChartActive]); // eslint-disable-line
 
-    // 공통 줌 계산: 현재 center를 유지하며 newCount 개만 표시
-    const applyZoom = (
-      prev: { start: number; end: number } | null,
-      total: number,
-      newCount: number,
-    ): { start: number; end: number } | null => {
-      const count = Math.max(2, Math.min(total, newCount));
-      if (count >= total) return null;
-      const s  = prev?.start ?? 0;
-      const en = prev?.end   ?? total - 1;
-      const center = (s + en) / 2;
-      // 중앙 기준으로 start 계산 후 양쪽 끝 초과 방지
-      let ns = Math.round(center - (count - 1) / 2);
-      ns = Math.max(0, Math.min(total - count, ns));
-      return { start: ns, end: ns + count - 1 };
+  // 바 차트 휠 줌 (마우스 위치 기준) / 모바일 핀치 줌
+  useEffect(() => {
+    const sc = barScrollRef.current;
+    if (!sc) return;
+
+    const zoom = (anchorXInView: number, factor: number) => {
+      const total = barTotalRef.current;
+      if (total === 0) return;
+      const chartW = Math.max(sc.offsetWidth, total * barWidthRef.current);
+      const frac = (anchorXInView + sc.scrollLeft) / chartW; // 0~1, 고정할 위치
+      const newW = Math.max(4, Math.min(600, barWidthRef.current * factor));
+      barWidthRef.current = newW;
+      setBarWidth(newW);
+      const newChartW = Math.max(sc.offsetWidth, total * newW);
+      pendingScrollRef.current = Math.max(0, Math.round(frac * newChartW - anchorXInView));
     };
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const total = barTotalRef.current;
-      if (total <= 1) return;
-      setBarZoom(prev => {
-        const cur = (prev?.end ?? total - 1) - (prev?.start ?? 0) + 1;
-        const factor = e.deltaY < 0 ? 0.8 : 1.25;
-        return applyZoom(prev, total, Math.round(cur * factor));
-      });
+      const rect = sc.getBoundingClientRect();
+      zoom(e.clientX - rect.left, e.deltaY < 0 ? 1.25 : 0.8);
     };
 
     let lastDist: number | null = null;
@@ -682,27 +681,24 @@ function App() {
       const dist = Math.sqrt(dx * dx + dy * dy);
       const ratio = dist / lastDist;
       lastDist = dist;
-      const total = barTotalRef.current;
-      if (total <= 1 || Math.abs(ratio - 1) < 0.01) return;
-      setBarZoom(prev => {
-        const cur = (prev?.end ?? total - 1) - (prev?.start ?? 0) + 1;
-        // 손가락 간격 증가(ratio>1) = 줌인 → 표시 개수 감소
-        return applyZoom(prev, total, Math.round(cur / ratio));
-      });
+      if (Math.abs(ratio - 1) < 0.01) return;
+      const rect = sc.getBoundingClientRect();
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      zoom(midX, ratio); // 핀치 벌리기(ratio>1) = 줌인
     };
 
     const handleTouchEnd = () => { lastDist = null; };
 
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    el.addEventListener('touchstart', handleTouchStart, { passive: true });
-    el.addEventListener('touchmove', handleTouchMove, { passive: false });
-    el.addEventListener('touchend', handleTouchEnd);
+    sc.addEventListener('wheel', handleWheel, { passive: false });
+    sc.addEventListener('touchstart', handleTouchStart, { passive: true });
+    sc.addEventListener('touchmove', handleTouchMove, { passive: false });
+    sc.addEventListener('touchend', handleTouchEnd);
 
     return () => {
-      el.removeEventListener('wheel', handleWheel);
-      el.removeEventListener('touchstart', handleTouchStart);
-      el.removeEventListener('touchmove', handleTouchMove);
-      el.removeEventListener('touchend', handleTouchEnd);
+      sc.removeEventListener('wheel', handleWheel);
+      sc.removeEventListener('touchstart', handleTouchStart);
+      sc.removeEventListener('touchmove', handleTouchMove);
+      sc.removeEventListener('touchend', handleTouchEnd);
     };
   }, [barChartActive]); // eslint-disable-line
 
@@ -735,6 +731,7 @@ function App() {
 
   const barOptions = {
     responsive: true,
+    maintainAspectRatio: false,
     plugins: {
       legend: { display: false },
       title:  { display: true, text: `${resultLabel} — 색상별 최저가 (로그 스케일)`, color: chartColors.text },
@@ -1240,17 +1237,27 @@ function App() {
             )}
 
             {/* 바 차트 뷰 */}
-            {colorView === 'bar' && visibleColorBarData && (
-              <div ref={colorBarRef} className="color-bar-zoom-wrap">
+            {colorView === 'bar' && colorBarData && (
+              <div className="color-bar-zoom-wrap">
                 <div className="color-bar-zoom-controls">
-                  <span className="color-bar-zoom-hint">마우스 휠 · 핀치로 확대/축소</span>
-                  {barZoom && (
-                    <button className="bar-zoom-reset-btn" onClick={() => setBarZoom(null)}>
-                      줌 초기화
-                    </button>
-                  )}
+                  <span className="color-bar-zoom-hint">마우스 휠 · 핀치로 확대/축소, 좌우 스크롤 가능</span>
+                  <button className="bar-zoom-reset-btn" onClick={() => {
+                    barWidthRef.current = barInitWRef.current;
+                    setBarWidth(barInitWRef.current);
+                    if (barScrollRef.current) barScrollRef.current.scrollLeft = 0;
+                  }}>
+                    줌 초기화
+                  </button>
                 </div>
-                <Bar options={barOptions} data={visibleColorBarData} />
+                <div ref={barScrollRef} className="color-bar-scroll">
+                  <div style={{
+                    width: `${Math.max(barScrollRef.current?.offsetWidth ?? 0, barTotalRef.current * barWidth)}px`,
+                    minWidth: '100%',
+                    height: '420px',
+                  }}>
+                    <Bar options={barOptions} data={colorBarData} />
+                  </div>
+                </div>
               </div>
             )}
 

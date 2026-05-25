@@ -600,7 +600,7 @@ function App() {
   const totalPages  = Math.max(1, Math.ceil(sortedColors.length / inlinePageSize));
   const pagedColors = sortedColors.slice((inlinePage - 1) * inlinePageSize, inlinePage * inlinePageSize);
 
-  const colorBarData = sortedColors.length > 0 ? {
+  const colorBarData = useMemo(() => sortedColors.length > 0 ? {
     labels: sortedColors.map(e => `(${e.r},${e.g},${e.b})`),
     datasets: [{
       label: '최저가',
@@ -609,7 +609,7 @@ function App() {
       borderColor:     sortedColors.map(e => e.hex),
       borderWidth: 1,
     }],
-  } : null;
+  } : null, [sortedColors]);
 
   // 바 차트 줌: barZoom 범위에 해당하는 데이터만 잘라서 사용
   barTotalRef.current = colorBarData?.labels.length ?? 0;

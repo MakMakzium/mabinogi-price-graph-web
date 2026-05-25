@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import {
   Chart as ChartJS,
@@ -240,15 +240,9 @@ function App() {
   const [searchHex,  setSearchHex] = useState('#000000');
 
   const [exactItemName, setExactItemName] = useState(false);
-  const [barWidth,      setBarWidth]      = useState(36);
 
-  const carouselRef    = useRef<HTMLDivElement>(null);
-  const cardRefs       = useRef<(HTMLDivElement | null)[]>([]);
-  const barScrollRef   = useRef<HTMLDivElement>(null);
-  const barWidthRef    = useRef(36);
-  const barInitWRef    = useRef(36);
-  const barTotalRef    = useRef(0);
-  const pendingScrollRef = useRef<number | null>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const cardRefs    = useRef<(HTMLDivElement | null)[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
@@ -571,11 +565,8 @@ function App() {
   // 새 categorical 결과가 올 때 초기화
   useEffect(() => { setCatSearch(''); setCatPage(1); }, [categoricalData]);
 
-  // 새 색상 결과가 올 때 퀵서치·페이지·줌 초기화
-  useEffect(() => {
-    setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1);
-    setBarWidth(36); barWidthRef.current = 36;
-  }, [colorData]);
+  // 새 색상 결과가 올 때 퀵서치·페이지 초기화
+  useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1); }, [colorData]);
   useEffect(() => { setInlinePage(1); }, [sortDir, inlinePageSize, inlineItemsPerRow]);
 
   // 퀵서치: 입력 색상과 가장 가까운 색상 인덱스 (유클리드 거리)
@@ -617,90 +608,6 @@ function App() {
     }],
   } : null, [sortedColors]);
 
-  barTotalRef.current = colorBarData?.labels.length ?? 0;
-
-  // 줌 후 스크롤 위치를 DOM 반영 직후 적용
-  useLayoutEffect(() => {
-    if (pendingScrollRef.current !== null && barScrollRef.current) {
-      barScrollRef.current.scrollLeft = pendingScrollRef.current;
-      pendingScrollRef.current = null;
-    }
-  });
-
-  // 바 차트 활성화 시 barWidth 초기화 (전체 바가 뷰포트에 맞도록)
-  const barChartActive = colorView === 'bar' && !!colorBarData;
-  useEffect(() => {
-    if (!barChartActive) return;
-    const sc = barScrollRef.current;
-    const total = barTotalRef.current;
-    if (!sc || total === 0) return;
-    const w = Math.max(4, Math.floor(sc.offsetWidth / total));
-    barInitWRef.current = w;
-    barWidthRef.current = w;
-    setBarWidth(w);
-  }, [barChartActive]); // eslint-disable-line
-
-  // 바 차트 휠 줌 (마우스 위치 기준) / 모바일 핀치 줌
-  useEffect(() => {
-    const sc = barScrollRef.current;
-    if (!sc) return;
-
-    const zoom = (anchorXInView: number, factor: number) => {
-      const total = barTotalRef.current;
-      if (total === 0) return;
-      const chartW = Math.max(sc.offsetWidth, total * barWidthRef.current);
-      const frac = (anchorXInView + sc.scrollLeft) / chartW; // 0~1, 고정할 위치
-      const newW = Math.max(4, Math.min(600, barWidthRef.current * factor));
-      barWidthRef.current = newW;
-      setBarWidth(newW);
-      const newChartW = Math.max(sc.offsetWidth, total * newW);
-      pendingScrollRef.current = Math.max(0, Math.round(frac * newChartW - anchorXInView));
-    };
-
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const rect = sc.getBoundingClientRect();
-      zoom(e.clientX - rect.left, e.deltaY < 0 ? 1.25 : 0.8);
-    };
-
-    let lastDist: number | null = null;
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        lastDist = Math.sqrt(dx * dx + dy * dy);
-      }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 2 || lastDist === null) return;
-      e.preventDefault();
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const ratio = dist / lastDist;
-      lastDist = dist;
-      if (Math.abs(ratio - 1) < 0.01) return;
-      const rect = sc.getBoundingClientRect();
-      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
-      zoom(midX, ratio); // 핀치 벌리기(ratio>1) = 줌인
-    };
-
-    const handleTouchEnd = () => { lastDist = null; };
-
-    sc.addEventListener('wheel', handleWheel, { passive: false });
-    sc.addEventListener('touchstart', handleTouchStart, { passive: true });
-    sc.addEventListener('touchmove', handleTouchMove, { passive: false });
-    sc.addEventListener('touchend', handleTouchEnd);
-
-    return () => {
-      sc.removeEventListener('wheel', handleWheel);
-      sc.removeEventListener('touchstart', handleTouchStart);
-      sc.removeEventListener('touchmove', handleTouchMove);
-      sc.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [barChartActive]); // eslint-disable-line
 
   // ── 캐러셀 버튼 ──────────────────────────────────────────────────────────
   const scrollCarousel = (dir: 'prev' | 'next') => {
@@ -731,7 +638,6 @@ function App() {
 
   const barOptions = {
     responsive: true,
-    maintainAspectRatio: false,
     plugins: {
       legend: { display: false },
       title:  { display: true, text: `${resultLabel} — 색상별 최저가 (로그 스케일)`, color: chartColors.text },
@@ -1238,27 +1144,7 @@ function App() {
 
             {/* 바 차트 뷰 */}
             {colorView === 'bar' && colorBarData && (
-              <div className="color-bar-zoom-wrap">
-                <div className="color-bar-zoom-controls">
-                  <span className="color-bar-zoom-hint">마우스 휠 · 핀치로 확대/축소, 좌우 스크롤 가능</span>
-                  <button className="bar-zoom-reset-btn" onClick={() => {
-                    barWidthRef.current = barInitWRef.current;
-                    setBarWidth(barInitWRef.current);
-                    if (barScrollRef.current) barScrollRef.current.scrollLeft = 0;
-                  }}>
-                    줌 초기화
-                  </button>
-                </div>
-                <div ref={barScrollRef} className="color-bar-scroll">
-                  <div style={{
-                    width: `${Math.max(barScrollRef.current?.offsetWidth ?? 0, barTotalRef.current * barWidth)}px`,
-                    minWidth: '100%',
-                    height: '420px',
-                  }}>
-                    <Bar options={barOptions} data={colorBarData} />
-                  </div>
-                </div>
-              </div>
+              <Bar options={barOptions} data={colorBarData} />
             )}
 
           </div>

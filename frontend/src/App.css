@@ -927,7 +927,7 @@ body {
 }
 
 .color-card {
-  flex: 0 0 128px;
+  flex: 0 0 calc(128px * var(--color-zoom, 1));
   scroll-snap-align: start;
   border-radius: 10px;
   border: 2px solid var(--border);
@@ -949,7 +949,7 @@ body {
 
 .color-card-swatch {
   width: 100%;
-  height: 80px;
+  height: calc(80px * var(--color-zoom, 1));
 }
 
 .color-card-info {
@@ -1003,8 +1003,8 @@ body {
 /* ── 반응형 ────────────────────────────────────────────────────────────────── */
 
 @media (max-width: 480px) {
-  .color-card { flex: 0 0 108px; }
-  .color-card-swatch { height: 64px; }
+  .color-card { flex: 0 0 calc(108px * var(--color-zoom, 1)); }
+  .color-card-swatch { height: calc(64px * var(--color-zoom, 1)); }
 }
 
 @media (max-width: 640px) {
@@ -1051,7 +1051,7 @@ body {
 
 .color-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(calc(116px * var(--color-zoom, 1)), 1fr));
   gap: 0.65rem;
 }
 
@@ -1071,7 +1071,7 @@ body {
 
 .color-swatch-box {
   width: 100%;
-  height: 62px;
+  height: calc(62px * var(--color-zoom, 1));
 }
 
 .color-swatch-info {
@@ -1135,7 +1135,7 @@ body {
 
 .inline-color-bar {
   width: 100%;
-  height: 80px;
+  height: calc(80px * var(--color-zoom, 1));
 }
 
 .inline-item-info {

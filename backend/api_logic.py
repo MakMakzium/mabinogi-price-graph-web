@@ -325,6 +325,9 @@ async def get_price_graph_data(
             return {"error": "아이템 이름을 입력해주세요."}
 
         async for item in item_iter:
+            if item_name and item_name not in item.get("item_name", ""):
+                continue
+
             opts  = item.get("item_option") or []
             price = item.get("auction_price_per_unit", 0)
 
@@ -432,6 +435,9 @@ async def stream_price_graph_data(
             return
 
         async for item in item_iter:
+            if item_name and item_name not in item.get("item_name", ""):
+                continue
+
             opts  = item.get("item_option") or []
             price = item.get("auction_price_per_unit", 0)
 
@@ -507,6 +513,9 @@ async def get_item_list(
         async for item in item_iter:
             if len(results) >= limit:
                 break
+
+            if item_name and item_name not in item.get("item_name", ""):
+                continue
 
             opts = item.get("item_option") or []
 

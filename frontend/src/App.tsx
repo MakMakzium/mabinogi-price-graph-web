@@ -239,8 +239,11 @@ function App() {
   const [inlineItemsPerRow, setInlineItemsPerRow] = useState(8);
   const [searchHex,  setSearchHex] = useState('#000000');
 
-  const carouselRef = useRef<HTMLDivElement>(null);
-  const cardRefs    = useRef<(HTMLDivElement | null)[]>([]);
+  const [colorZoom, setColorZoom] = useState(1.0);
+
+  const carouselRef     = useRef<HTMLDivElement>(null);
+  const cardRefs        = useRef<(HTMLDivElement | null)[]>([]);
+  const colorDisplayRef = useRef<HTMLDivElement>(null);
 
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
@@ -412,6 +415,7 @@ function App() {
     setError(null);
     setChartData(null);
     setColorData(null);
+    setColorZoom(1.0);
     setCategoricalData(null);
     setDetailModal(null);
 
@@ -563,6 +567,54 @@ function App() {
   // 새 색상 결과가 올 때 퀵서치·페이지 초기화
   useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1); }, [colorData]);
   useEffect(() => { setInlinePage(1); }, [sortDir, inlinePageSize, inlineItemsPerRow]);
+
+  // 색상 결과 영역 마우스 휠 줌 / 모바일 핀치 줌
+  const colorResultVisible = !!colorData && colorData.length > 0;
+  useEffect(() => {
+    const el = colorDisplayRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if ((e.target as HTMLElement).closest('.color-carousel')) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setColorZoom(prev => Math.max(0.5, Math.min(3.0, parseFloat((prev + delta).toFixed(1)))));
+    };
+
+    let lastDist: number | null = null;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastDist = Math.sqrt(dx * dx + dy * dy);
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || lastDist === null) return;
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      setColorZoom(prev => Math.max(0.5, Math.min(3.0, prev * (dist / lastDist!))));
+      lastDist = dist;
+    };
+
+    const handleTouchEnd = () => { lastDist = null; };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    el.addEventListener('touchstart', handleTouchStart, { passive: true });
+    el.addEventListener('touchmove', handleTouchMove, { passive: false });
+    el.addEventListener('touchend', handleTouchEnd);
+
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchmove', handleTouchMove);
+      el.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [colorResultVisible]); // eslint-disable-line
 
   // 퀵서치: 입력 색상과 가장 가까운 색상 인덱스 (유클리드 거리)
   const matchedIdx = useMemo(() => {
@@ -1001,7 +1053,11 @@ function App() {
 
         {/* 색상 결과 */}
         {colorData && colorData.length > 0 && (
-          <div className="chart-container">
+          <div
+            className="chart-container"
+            ref={colorDisplayRef}
+            style={{ '--color-zoom': colorZoom } as React.CSSProperties}
+          >
 
             {/* 헤더: 타이틀 + 뷰 토글 + 정렬 */}
             <div className="color-controls">

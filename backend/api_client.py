@@ -45,8 +45,11 @@ def get_headers() -> dict:
     return {"x-nxopen-api-key": get_api_key()}
 
 
-# ── 전역 토큰 버킷 (Nexon API 2,000 req/s 제한, 최대 500명 동시 사용자 고려) ──
-# 1,800 req/s = 10% 여유. 유저 수에 관계없이 서버 전체 합산 요청 속도를 제한.
+# ── 전역 토큰 버킷 ─────────────────────────────────────────────────────────────
+# Nexon API 한도: 키 1개당 2,000 req/s
+# 봇(auction_bot)이 동일 키를 공유하며 키당 최대 500 req/s 사용.
+# 웹에는 키당 1,000 req/s 할당 (나머지 500 req/s는 봇·네트워크 지연 버퍼).
+# 키가 N개면 웹 전체 한도 = 1,000 × N req/s.
 
 class _TokenBucket:
     """초당 rate개의 요청을 허용하는 토큰 버킷."""
@@ -76,4 +79,4 @@ class _TokenBucket:
             await asyncio.sleep(wait)
 
 
-nexon_limiter = _TokenBucket(1800)
+nexon_limiter = _TokenBucket(1000 * len(_rotator.keys))

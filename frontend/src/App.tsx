@@ -238,11 +238,16 @@ function App() {
   const [inlinePageSize,   setInlinePageSize]   = useState(20);
   const [inlineItemsPerRow, setInlineItemsPerRow] = useState(8);
   const [searchHex,  setSearchHex] = useState('#000000');
+  const [barZoom,      setBarZoom]      = useState(1);
+  const [barWrapWidth, setBarWrapWidth] = useState(0);
 
   const [exactItemName, setExactItemName] = useState(false);
 
-  const carouselRef = useRef<HTMLDivElement>(null);
-  const cardRefs    = useRef<(HTMLDivElement | null)[]>([]);
+  const carouselRef           = useRef<HTMLDivElement>(null);
+  const cardRefs              = useRef<(HTMLDivElement | null)[]>([]);
+  const inlineMatchRef        = useRef<HTMLDivElement | null>(null);
+  const pendingInlineScrollRef = useRef(false);
+  const barWrapRef            = useRef<HTMLDivElement>(null);
 
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
@@ -565,9 +570,37 @@ function App() {
   // 새 categorical 결과가 올 때 초기화
   useEffect(() => { setCatSearch(''); setCatPage(1); }, [categoricalData]);
 
-  // 새 색상 결과가 올 때 퀵서치·페이지 초기화
-  useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1); }, [colorData]);
+  // 새 색상 결과가 올 때 퀵서치·페이지·줌 초기화
+  useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1); setBarZoom(1); }, [colorData]);
   useEffect(() => { setInlinePage(1); }, [sortDir, inlinePageSize, inlineItemsPerRow]);
+
+  // 바 차트 뷰일 때 마우스 휠로 가로 줌
+  useEffect(() => {
+    if (colorView !== 'bar') return;
+    const el = barWrapRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      setBarZoom(z => {
+        const next = z * (e.deltaY < 0 ? 1.2 : 1 / 1.2);
+        return Math.min(200, Math.max(1, next));
+      });
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, [colorView]);
+
+  // 바 차트 컨테이너 실제 너비 추적
+  useEffect(() => {
+    if (colorView !== 'bar') return;
+    const el = barWrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      setBarWrapWidth(entries[0]?.contentRect.width ?? 0);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [colorView]);
 
   // 퀵서치: 입력 색상과 가장 가까운 색상 인덱스 (유클리드 거리)
   const matchedIdx = useMemo(() => {
@@ -593,6 +626,13 @@ function App() {
     container.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
   }, [matchedIdx]);
 
+  // 인라인 뷰: 페이지 이동 후 하이라이트 카드로 스크롤
+  useEffect(() => {
+    if (!pendingInlineScrollRef.current) return;
+    pendingInlineScrollRef.current = false;
+    inlineMatchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [inlinePage]);
+
   // ── 인라인 페이지네이션 ───────────────────────────────────────────────────
   const totalPages  = Math.max(1, Math.ceil(sortedColors.length / inlinePageSize));
   const pagedColors = sortedColors.slice((inlinePage - 1) * inlinePageSize, inlinePage * inlinePageSize);
@@ -608,6 +648,22 @@ function App() {
     }],
   } : null, [sortedColors]);
 
+
+  // 퀵서치 결과 클릭 → 해당 뷰의 하이라이트 카드로 이동
+  const handleMatchResultClick = () => {
+    if (matchedIdx === null) return;
+    if (colorView === 'carousel') {
+      const card = cardRefs.current[matchedIdx];
+      if (!card || !carouselRef.current) return;
+      const container = carouselRef.current;
+      const left = card.offsetLeft - (container.offsetWidth - card.offsetWidth) / 2;
+      container.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+    } else if (colorView === 'inline') {
+      const targetPage = Math.floor(matchedIdx / inlinePageSize) + 1;
+      pendingInlineScrollRef.current = true;
+      setInlinePage(targetPage);
+    }
+  };
 
   // ── 캐러셀 버튼 ──────────────────────────────────────────────────────────
   const scrollCarousel = (dir: 'prev' | 'next') => {
@@ -644,7 +700,15 @@ function App() {
       tooltip: { callbacks: { label: (ctx: any) => fmt(ctx.parsed.y) } },
     },
     scales: {
-      x: { ticks: { color: chartColors.ticks }, grid: { color: chartColors.grid } },
+      x: {
+        ticks: {
+          color: chartColors.ticks,
+          display: barWrapWidth > 0 && (barZoom * barWrapWidth) / sortedColors.length >= 10,
+          maxRotation: 0,
+          minRotation: 0,
+        },
+        grid: { color: chartColors.grid },
+      },
       y: {
         type: 'logarithmic' as const,
         ticks: {
@@ -1057,7 +1121,11 @@ function App() {
                   }}
                 />
                 {matchedIdx !== null && sortedColors[matchedIdx] && (
-                  <div className="color-match-result">
+                  <div
+                    className="color-match-result color-match-result--clickable"
+                    onClick={handleMatchResultClick}
+                    title="클릭하면 해당 색상으로 이동합니다"
+                  >
                     <div className="color-match-swatch" style={{ backgroundColor: sortedColors[matchedIdx].hex }} />
                     <span className="color-match-hex">{sortedColors[matchedIdx].hex.toUpperCase()}</span>
                     <span className="color-match-rgb">({sortedColors[matchedIdx].r},{sortedColors[matchedIdx].g},{sortedColors[matchedIdx].b})</span>
@@ -1098,16 +1166,24 @@ function App() {
                   className="inline-strip"
                   style={{ '--inline-cols': inlineItemsPerRow } as React.CSSProperties}
                 >
-                  {pagedColors.map((e, i) => (
-                    <div key={i} className={`inline-item${sortedColors.indexOf(e) === matchedIdx ? ' color-card-matched' : ''}`}>
-                      <div className="inline-color-bar" style={{ backgroundColor: e.hex }} />
-                      <div className="inline-item-info">
-                        <span className="inline-price">{fmt(e.price)}</span>
-                        <span className="inline-hex">{e.hex.toUpperCase()}</span>
-                        <span className="inline-rgb">({e.r},{e.g},{e.b})</span>
+                  {pagedColors.map((e, i) => {
+                    const globalIdx = (inlinePage - 1) * inlinePageSize + i;
+                    const isMatched = globalIdx === matchedIdx;
+                    return (
+                      <div
+                        key={i}
+                        className={`inline-item${isMatched ? ' color-card-matched' : ''}`}
+                        ref={isMatched ? inlineMatchRef : undefined}
+                      >
+                        <div className="inline-color-bar" style={{ backgroundColor: e.hex }} />
+                        <div className="inline-item-info">
+                          <span className="inline-price">{fmt(e.price)}</span>
+                          <span className="inline-hex">{e.hex.toUpperCase()}</span>
+                          <span className="inline-rgb">({e.r},{e.g},{e.b})</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div className="pagination">
                   <button className="page-btn" onClick={() => setInlinePage(p => Math.max(1, p - 1))} disabled={inlinePage === 1}>‹</button>
@@ -1144,7 +1220,15 @@ function App() {
 
             {/* 바 차트 뷰 */}
             {colorView === 'bar' && colorBarData && (
-              <Bar options={barOptions} data={colorBarData} />
+              <div ref={barWrapRef} className="bar-zoom-wrap">
+                <p className="bar-zoom-hint">마우스 휠로 확대/축소</p>
+                <div style={{ width: `${barZoom * 100}%`, height: 420 }}>
+                  <Bar options={{ ...barOptions, maintainAspectRatio: false }} data={colorBarData} />
+                </div>
+                {barZoom > 1.05 && (
+                  <span className="bar-zoom-level">×{barZoom.toFixed(1)}</span>
+                )}
+              </div>
             )}
 
           </div>

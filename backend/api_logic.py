@@ -131,31 +131,6 @@ def _find_numeric_value(
 
 # ── Nexon API 스트리밍 ─────────────────────────────────────────────────────────
 
-async def _fetch_category_page(
-    session: aiohttp.ClientSession,
-    category: str,
-    page: int,
-    sem: asyncio.Semaphore,
-) -> List[Dict[str, Any]]:
-    url = "https://open.api.nexon.com/mabinogi/v1/auction/list"
-    async with sem:
-        for attempt in range(3):
-            try:
-                await nexon_limiter.acquire()
-                async with session.get(
-                    url, headers=get_headers(),
-                    params={"first_category": category, "page": page},
-                ) as resp:
-                    if resp.status == 429:
-                        await asyncio.sleep(2 ** attempt)
-                        continue
-                    if resp.status != 200:
-                        return []
-                    data = await resp.json()
-                    return data.get("auction_item", [])
-            except Exception as e:
-                print(f"[category search] {category} p{page}: {e}", flush=True)
-        return []
 
 
 async def _iter_items_by_name(
@@ -209,33 +184,35 @@ async def _iter_items_by_categories(
     session: aiohttp.ClientSession,
     categories: List[str],
 ) -> AsyncIterator[Dict[str, Any]]:
-    """카테고리 검색 — 5페이지씩 병렬 fetch하고 즉시 yield합니다."""
-    sem = asyncio.Semaphore(20)
+    """카테고리 검색 — auction_item_category + cursor 방식으로 전체 매물을 순회합니다."""
+    url = "https://open.api.nexon.com/mabinogi/v1/auction/list"
 
     for category in categories:
-        first_page = await _fetch_category_page(session, category, 1, sem)
-        for item in first_page:
-            yield item
-        if len(first_page) < 500:
-            continue
-
-        page = 2
+        params: Dict[str, Any] = {"auction_item_category": category}
         while True:
-            pages_to_fetch = list(range(page, page + 5))
-            tasks = [_fetch_category_page(session, category, p, sem) for p in pages_to_fetch]
-            results = await asyncio.gather(*tasks)
-
-            done = False
-            for items in results:
-                for item in items:
-                    yield item
-                if len(items) < 500:
-                    done = True
-                    break
-
-            page += 5
-            if done or page > 401:
+            data = None
+            for attempt in range(3):
+                try:
+                    await nexon_limiter.acquire()
+                    async with session.get(url, headers=get_headers(), params=params) as resp:
+                        if resp.status == 429:
+                            await asyncio.sleep(2 ** attempt)
+                            continue
+                        if resp.status != 200:
+                            return
+                        data = await resp.json()
+                        break
+                except Exception as e:
+                    print(f"[category search] {category}: {e}", flush=True)
+            if data is None:
                 break
+            items = data.get("auction_item", [])
+            for item in items:
+                yield item
+            cursor = data.get("next_cursor")
+            if not cursor or not items:
+                break
+            params["cursor"] = cursor
 
 
 # ── 집계 헬퍼 ─────────────────────────────────────────────────────────────────

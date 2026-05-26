@@ -873,6 +873,18 @@ body {
   padding: 0.4rem 0.8rem;
 }
 
+.color-match-result--clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, filter 0.15s, transform 0.1s;
+}
+.color-match-result--clickable:hover {
+  border-color: var(--border-focus);
+  filter: brightness(1.08);
+}
+.color-match-result--clickable:active {
+  transform: scale(0.97);
+}
+
 .color-match-swatch {
   width: 26px;
   height: 26px;
@@ -899,6 +911,35 @@ body {
   font-weight: 700;
   color: var(--price-color);
   margin-left: 0.3rem;
+}
+
+/* ── 바 차트 줌 ──────────────────────────────────────────────────────────── */
+
+.bar-zoom-wrap {
+  position: relative;
+  overflow-x: auto;
+}
+
+.bar-zoom-hint {
+  font-size: 0.7rem;
+  color: var(--text-2);
+  text-align: center;
+  margin: 0 0 0.3rem;
+  user-select: none;
+}
+
+.bar-zoom-level {
+  position: sticky;
+  left: 0;
+  display: inline-block;
+  margin-top: 0.3rem;
+  font-size: 0.72rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  color: var(--text-2);
+  pointer-events: none;
 }
 
 /* ── 색상 캐러셀 ─────────────────────────────────────────────────────────── */

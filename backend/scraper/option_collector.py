@@ -66,12 +66,9 @@ async def worker_collect_options(
         print(f"카테고리 '{category}' 수집 시작...")
         opts: Set[str] = set()
         item_count = 0
-        page = 0
+        params: dict = {"auction_item_category": category}
 
         while True:
-            page += 1
-            params = {"first_category": category, "page": page}
-
             try:
                 async with session.get(
                     "https://open.api.nexon.com/mabinogi/v1/auction/list",
@@ -117,10 +114,11 @@ async def worker_collect_options(
                                     else:
                                         opts.add(opt_type)
 
-                        if len(items) < 500:
-                            break
-
+                        cursor = data.get("next_cursor")
                         del items, data
+                        if not cursor:
+                            break
+                        params["cursor"] = cursor
                         await asyncio.sleep(0.1)
 
                     elif resp.status == 429:

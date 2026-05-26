@@ -41,33 +41,29 @@ def extract_stat_name(option_value: str) -> str | None:
 
 async def collect(session: aiohttp.ClientSession) -> set[str]:
     stats: set[str] = set()
-    page = 0
+    params = {
+        "auction_item_category": CATEGORY,
+        "item_name": ITEM_NAME,
+    }
+    round_num = 0
 
     while True:
-        page += 1
-        params = {
-            "first_category": CATEGORY,
-            "item_name": ITEM_NAME,
-            "page": page,
-        }
-
         try:
             async with session.get(API_URL, headers=get_headers(), params=params) as resp:
                 if resp.status == 429:
-                    print(f"  속도 제한 p{page}, 5초 대기...")
+                    print(f"  속도 제한 round={round_num}, 5초 대기...")
                     await asyncio.sleep(5)
-                    page -= 1
                     continue
 
                 if resp.status != 200:
-                    print(f"  오류 p{page}: HTTP {resp.status}")
+                    print(f"  오류 round={round_num}: HTTP {resp.status}")
                     break
 
                 data = await resp.json()
                 items = data.get("auction_item", [])
 
                 if not items:
-                    print(f"  p{page}: 결과 없음, 수집 종료")
+                    print(f"  round={round_num}: 결과 없음, 수집 종료")
                     break
 
                 for item in items:
@@ -86,15 +82,17 @@ async def collect(session: aiohttp.ClientSession) -> set[str]:
                         else:
                             stats.add(sub)
 
-                print(f"  p{page}: 아이템 {len(items)}개, 누적 스탯 {len(stats)}개")
+                print(f"  round={round_num}: 아이템 {len(items)}개, 누적 스탯 {len(stats)}개")
 
-                if len(items) < 500:
+                cursor = data.get("next_cursor")
+                if not cursor:
                     break
-
+                params["cursor"] = cursor
+                round_num += 1
                 await asyncio.sleep(0.2)
 
         except Exception as e:
-            print(f"  예외 p{page}: {e}")
+            print(f"  예외 round={round_num}: {e}")
             break
 
     return stats

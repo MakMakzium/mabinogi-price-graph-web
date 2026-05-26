@@ -43,7 +43,7 @@ _SUB_OPTIONS_TTL = 3600  # 1시간
 _item_names_cache: Dict[str, Tuple[float, List[str]]] = {}
 _ITEM_NAMES_TTL = 300  # 5분
 
-# 슬롯 타입별 우선 탐색 카테고리 (Nexon API first_category 값)
+# 슬롯 타입별 우선 탐색 카테고리 (Nexon API auction_item_category 값)
 _SLOT_TYPE_CATEGORIES: Dict[str, List[str]] = {
     "세공 옵션":       ["검", "한손 장비", "중갑옷", "경갑옷", "천옷", "모자/가발"],
     "무리아스 유물":    ["유물"],
@@ -93,13 +93,14 @@ async def _fetch_slot_sub_options(option_type: str) -> List[str]:
 
     async with aiohttp.ClientSession() as session:
         for category in categories:
-            for page in range(1, 4):  # 카테고리당 최대 3페이지
+            params: dict = {"auction_item_category": category}
+            while True:
                 try:
                     await nexon_limiter.acquire()
                     async with session.get(
                         "https://open.api.nexon.com/mabinogi/v1/auction/list",
                         headers=get_headers(),
-                        params={"first_category": category, "page": page},
+                        params=params,
                     ) as resp:
                         if resp.status == 429:
                             await asyncio.sleep(3)
@@ -118,25 +119,24 @@ async def _fetch_slot_sub_options(option_type: str) -> List[str]:
                                 sub = str(opt.get("option_sub_type") or "")
                                 val = str(opt.get("option_value") or "")
                                 if sub.strip().isdigit():
-                                    # 슬롯 번호 타입: option_value 앞부분에서 스탯명 추출
                                     stat = _extract_stat_name(val)
                                     if stat:
                                         stats.add(stat)
                                 elif sub and sub.lower() != "none":
                                     stats.add(sub)
                                 else:
-                                    # option_sub_type이 없는 타입(에코스톤 각성 능력 등):
-                                    # option_value 앞부분에서 스탯명 추출
                                     stat = _extract_stat_name(val)
                                     if stat:
                                         stats.add(stat)
 
-                        if len(items) < 500:
+                        cursor = data.get("next_cursor")
+                        if not cursor:
                             break
+                        params["cursor"] = cursor
                         await asyncio.sleep(0.1)
 
                 except Exception as e:
-                    print(f"[sub-options] {option_type} / {category} p{page}: {e}", flush=True)
+                    print(f"[sub-options] {option_type} / {category}: {e}", flush=True)
                     break
 
     return sorted(stats)

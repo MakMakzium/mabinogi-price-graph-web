@@ -585,7 +585,8 @@ function App() {
       const mouseX = e.clientX - el.getBoundingClientRect().left;
       const scrollLeft = el.scrollLeft;
       setBarZoom(oldZoom => {
-        const newZoom = Math.min(200, Math.max(1, oldZoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
+        const maxZoom = barWrapWidth > 0 ? Math.floor(30000 / barWrapWidth) : 200;
+        const newZoom = Math.min(maxZoom, Math.max(1, oldZoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
         barScrollTargetRef.current = (scrollLeft + mouseX) * (newZoom / oldZoom) - mouseX;
         return newZoom;
       });
@@ -602,13 +603,15 @@ function App() {
     barScrollTargetRef.current = null;
   }, [barZoom]);
 
-  // 모바일 핀치 줌
+  // 모바일: 핀치 줌 + 1손가락 스와이프 패닝
   useEffect(() => {
     if (colorView !== 'bar') return;
     const el = barWrapRef.current;
     if (!el) return;
     let lastDist = 0;
     let pinchMidX = 0;
+    let swipeStartX = 0;
+    let swipeStartScroll = 0;
     const getDist = (touches: TouchList) => {
       const dx = touches[0].clientX - touches[1].clientX;
       const dy = touches[0].clientY - touches[1].clientY;
@@ -618,22 +621,32 @@ function App() {
       if (e.touches.length === 2) {
         lastDist = getDist(e.touches);
         pinchMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - el.getBoundingClientRect().left;
+      } else if (e.touches.length === 1) {
+        swipeStartX = e.touches[0].clientX;
+        swipeStartScroll = el.scrollLeft;
       }
     };
     const onMove = (e: TouchEvent) => {
-      if (e.touches.length !== 2 || lastDist === 0) return;
-      e.preventDefault();
-      const dist = getDist(e.touches);
-      const scale = dist / lastDist;
-      const scrollLeft = el.scrollLeft;
-      setBarZoom(oldZoom => {
-        const newZoom = Math.min(200, Math.max(1, oldZoom * scale));
-        barScrollTargetRef.current = (scrollLeft + pinchMidX) * (newZoom / oldZoom) - pinchMidX;
-        return newZoom;
-      });
-      lastDist = dist;
+      if (e.touches.length === 2 && lastDist > 0) {
+        e.preventDefault();
+        const dist = getDist(e.touches);
+        const scale = dist / lastDist;
+        const scrollLeft = el.scrollLeft;
+        setBarZoom(oldZoom => {
+          const maxZoom = barWrapWidth > 0 ? Math.floor(30000 / barWrapWidth) : 200;
+          const newZoom = Math.min(maxZoom, Math.max(1, oldZoom * scale));
+          barScrollTargetRef.current = (scrollLeft + pinchMidX) * (newZoom / oldZoom) - pinchMidX;
+          return newZoom;
+        });
+        lastDist = dist;
+      } else if (e.touches.length === 1) {
+        e.preventDefault();
+        el.scrollLeft = swipeStartScroll - (e.touches[0].clientX - swipeStartX);
+      }
     };
-    const onEnd = () => { lastDist = 0; };
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) lastDist = 0;
+    };
     el.addEventListener('touchstart', onStart, { passive: true });
     el.addEventListener('touchmove', onMove, { passive: false });
     el.addEventListener('touchend', onEnd);
@@ -641,6 +654,42 @@ function App() {
       el.removeEventListener('touchstart', onStart);
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
+    };
+  }, [colorView]);
+
+  // 데스크톱: 마우스 드래그 패닝
+  useEffect(() => {
+    if (colorView !== 'bar') return;
+    const el = barWrapRef.current;
+    if (!el) return;
+    let isDragging = false;
+    let startX = 0;
+    let startScroll = 0;
+    const onDown = (e: MouseEvent) => {
+      isDragging = true;
+      startX = e.clientX;
+      startScroll = el.scrollLeft;
+      el.style.cursor = 'grabbing';
+      e.preventDefault();
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      el.scrollLeft = startScroll - (e.clientX - startX);
+    };
+    const onUp = () => {
+      if (!isDragging) return;
+      isDragging = false;
+      el.style.cursor = 'grab';
+    };
+    el.style.cursor = 'grab';
+    el.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      el.style.cursor = '';
+      el.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
     };
   }, [colorView]);
 
@@ -692,7 +741,7 @@ function App() {
   const pagedColors = sortedColors.slice((inlinePage - 1) * inlinePageSize, inlinePage * inlinePageSize);
 
   const colorBarData = useMemo(() => sortedColors.length > 0 ? {
-    labels: sortedColors.map(e => e.hex),
+    labels: sortedColors.map(e => `(${e.r},${e.g},${e.b})`),
     datasets: [{
       label: '최저가',
       data: sortedColors.map(e => e.price),
@@ -755,14 +804,23 @@ function App() {
     },
     scales: {
       x: {
-        ticks: {
-          color: chartColors.ticks,
-          display: barWrapWidth > 0 && (barZoom * barWrapWidth) / sortedColors.length >= 10,
-          maxRotation: 0,
-          minRotation: 0,
-          maxTicksLimit: Math.max(2, Math.floor((barZoom * barWrapWidth) / 80)),
-          autoSkipPadding: 4,
-        },
+        ticks: (() => {
+          const barPx = sortedColors.length > 0
+            ? (barZoom * barWrapWidth) / sortedColors.length
+            : 0;
+          const wideEnough = barPx >= 70;
+          return {
+            color: chartColors.ticks,
+            display: barWrapWidth > 0 && barPx >= 10,
+            maxRotation: 0,
+            minRotation: 0,
+            autoSkip: !wideEnough,
+            ...(wideEnough ? {} : {
+              maxTicksLimit: Math.max(2, Math.floor((barZoom * barWrapWidth) / 70)),
+              autoSkipPadding: 4,
+            }),
+          };
+        })(),
         grid: { display: false },
       },
       y: {
@@ -1277,7 +1335,7 @@ function App() {
             {/* 바 차트 뷰 */}
             {colorView === 'bar' && colorBarData && (
               <div ref={barWrapRef} className="bar-zoom-wrap">
-                <p className="bar-zoom-hint">마우스 휠 / 핀치로 확대·축소</p>
+                <p className="bar-zoom-hint">휠로 확대·축소 / 드래그로 이동</p>
                 <div style={{ width: `${barZoom * 100}%`, height: 420 }}>
                   <Bar options={{ ...barOptions, maintainAspectRatio: false }} data={colorBarData} />
                 </div>

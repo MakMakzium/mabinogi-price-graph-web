@@ -918,6 +918,7 @@ body {
 .bar-zoom-wrap {
   position: relative;
   overflow-x: auto;
+  user-select: none;
 }
 
 .bar-zoom-hint {

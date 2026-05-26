@@ -249,6 +249,7 @@ function App() {
   const pendingInlineScrollRef = useRef(false);
   const barWrapRef            = useRef<HTMLDivElement>(null);
   const barScrollTargetRef    = useRef<number | null>(null);
+  const barWrapWidthRef       = useRef(0);
 
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
@@ -585,7 +586,7 @@ function App() {
       const mouseX = e.clientX - el.getBoundingClientRect().left;
       const scrollLeft = el.scrollLeft;
       setBarZoom(oldZoom => {
-        const maxZoom = barWrapWidth > 0 ? Math.floor(30000 / barWrapWidth) : 200;
+        const maxZoom = barWrapWidthRef.current > 0 ? Math.floor(30000 / barWrapWidthRef.current) : 200;
         const newZoom = Math.min(maxZoom, Math.max(1, oldZoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
         barScrollTargetRef.current = (scrollLeft + mouseX) * (newZoom / oldZoom) - mouseX;
         return newZoom;
@@ -633,7 +634,7 @@ function App() {
         const scale = dist / lastDist;
         const scrollLeft = el.scrollLeft;
         setBarZoom(oldZoom => {
-          const maxZoom = barWrapWidth > 0 ? Math.floor(30000 / barWrapWidth) : 200;
+          const maxZoom = barWrapWidthRef.current > 0 ? Math.floor(30000 / barWrapWidthRef.current) : 200;
           const newZoom = Math.min(maxZoom, Math.max(1, oldZoom * scale));
           barScrollTargetRef.current = (scrollLeft + pinchMidX) * (newZoom / oldZoom) - pinchMidX;
           return newZoom;
@@ -699,7 +700,9 @@ function App() {
     const el = barWrapRef.current;
     if (!el) return;
     const ro = new ResizeObserver(entries => {
-      setBarWrapWidth(entries[0]?.contentRect.width ?? 0);
+      const w = entries[0]?.contentRect.width ?? 0;
+      setBarWrapWidth(w);
+      barWrapWidthRef.current = w;
     });
     ro.observe(el);
     return () => ro.disconnect();

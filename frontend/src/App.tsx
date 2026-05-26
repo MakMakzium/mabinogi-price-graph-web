@@ -248,6 +248,7 @@ function App() {
   const inlineMatchRef        = useRef<HTMLDivElement | null>(null);
   const pendingInlineScrollRef = useRef(false);
   const barWrapRef            = useRef<HTMLDivElement>(null);
+  const barScrollTargetRef    = useRef<number | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
@@ -574,20 +575,73 @@ function App() {
   useEffect(() => { setSearchHex('#000000'); cardRefs.current = []; setInlinePage(1); setBarZoom(1); }, [colorData]);
   useEffect(() => { setInlinePage(1); }, [sortDir, inlinePageSize, inlineItemsPerRow]);
 
-  // 바 차트 뷰일 때 마우스 휠로 가로 줌
+  // 바 차트 뷰일 때 마우스 휠로 가로 줌 (커서 위치 기준)
   useEffect(() => {
     if (colorView !== 'bar') return;
     const el = barWrapRef.current;
     if (!el) return;
     const handler = (e: WheelEvent) => {
       e.preventDefault();
-      setBarZoom(z => {
-        const next = z * (e.deltaY < 0 ? 1.2 : 1 / 1.2);
-        return Math.min(200, Math.max(1, next));
+      const mouseX = e.clientX - el.getBoundingClientRect().left;
+      const scrollLeft = el.scrollLeft;
+      setBarZoom(oldZoom => {
+        const newZoom = Math.min(200, Math.max(1, oldZoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
+        barScrollTargetRef.current = (scrollLeft + mouseX) * (newZoom / oldZoom) - mouseX;
+        return newZoom;
       });
     };
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
+  }, [colorView]);
+
+  // 바 차트 줌 변경 후 스크롤 위치 보정
+  useEffect(() => {
+    const el = barWrapRef.current;
+    if (!el || barScrollTargetRef.current === null) return;
+    el.scrollLeft = Math.max(0, barScrollTargetRef.current);
+    barScrollTargetRef.current = null;
+  }, [barZoom]);
+
+  // 모바일 핀치 줌
+  useEffect(() => {
+    if (colorView !== 'bar') return;
+    const el = barWrapRef.current;
+    if (!el) return;
+    let lastDist = 0;
+    let pinchMidX = 0;
+    const getDist = (touches: TouchList) => {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        lastDist = getDist(e.touches);
+        pinchMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - el.getBoundingClientRect().left;
+      }
+    };
+    const onMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || lastDist === 0) return;
+      e.preventDefault();
+      const dist = getDist(e.touches);
+      const scale = dist / lastDist;
+      const scrollLeft = el.scrollLeft;
+      setBarZoom(oldZoom => {
+        const newZoom = Math.min(200, Math.max(1, oldZoom * scale));
+        barScrollTargetRef.current = (scrollLeft + pinchMidX) * (newZoom / oldZoom) - pinchMidX;
+        return newZoom;
+      });
+      lastDist = dist;
+    };
+    const onEnd = () => { lastDist = 0; };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd);
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+    };
   }, [colorView]);
 
   // 바 차트 컨테이너 실제 너비 추적
@@ -638,7 +692,7 @@ function App() {
   const pagedColors = sortedColors.slice((inlinePage - 1) * inlinePageSize, inlinePage * inlinePageSize);
 
   const colorBarData = useMemo(() => sortedColors.length > 0 ? {
-    labels: sortedColors.map(e => `(${e.r},${e.g},${e.b})`),
+    labels: sortedColors.map(e => e.hex),
     datasets: [{
       label: '최저가',
       data: sortedColors.map(e => e.price),
@@ -706,8 +760,10 @@ function App() {
           display: barWrapWidth > 0 && (barZoom * barWrapWidth) / sortedColors.length >= 10,
           maxRotation: 0,
           minRotation: 0,
+          maxTicksLimit: Math.max(2, Math.floor((barZoom * barWrapWidth) / 80)),
+          autoSkipPadding: 4,
         },
-        grid: { color: chartColors.grid },
+        grid: { display: false },
       },
       y: {
         type: 'logarithmic' as const,
@@ -720,7 +776,7 @@ function App() {
             return '';
           },
         },
-        grid: { color: chartColors.grid },
+        grid: { display: false },
       },
     },
   };
@@ -1221,7 +1277,7 @@ function App() {
             {/* 바 차트 뷰 */}
             {colorView === 'bar' && colorBarData && (
               <div ref={barWrapRef} className="bar-zoom-wrap">
-                <p className="bar-zoom-hint">마우스 휠로 확대/축소</p>
+                <p className="bar-zoom-hint">마우스 휠 / 핀치로 확대·축소</p>
                 <div style={{ width: `${barZoom * 100}%`, height: 420 }}>
                   <Bar options={{ ...barOptions, maintainAspectRatio: false }} data={colorBarData} />
                 </div>

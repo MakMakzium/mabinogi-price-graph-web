@@ -31,11 +31,45 @@ app.add_middleware(
 
 _options_cache: List[str] = []
 
-# ── 서브옵션 라이브 캐시 ────────────────────────────────────────────────────────
+# ── 서브옵션 캐시 (인메모리 + 파일 영속) ──────────────────────────────────────────
+# 세공 스탯 이름은 게임 업데이트 때만 바뀌므로 TTL을 7일로 설정.
+# Render 재시작 후에도 재조회 없이 바로 사용할 수 있도록 JSON 파일에 저장.
 
 # {option_type: (timestamp, [stat_names])}
 _sub_options_cache: Dict[str, Tuple[float, List[str]]] = {}
-_SUB_OPTIONS_TTL = 3600  # 1시간
+_SUB_OPTIONS_TTL = 604800  # 7일
+_SUB_OPTIONS_CACHE_FILE = os.path.join(os.path.dirname(__file__), "scraper", "sub_options_cache.json")
+
+
+def _load_sub_options_file() -> None:
+    """서버 시작 시 디스크 캐시를 인메모리로 불러옵니다."""
+    try:
+        with open(_SUB_OPTIONS_CACHE_FILE, "r", encoding="utf-8") as f:
+            raw: Dict[str, Dict] = json.load(f)
+        now = time.time()
+        loaded = 0
+        for opt_type, entry in raw.items():
+            ts   = float(entry.get("ts", 0))
+            data = entry.get("data", [])
+            if now - ts < _SUB_OPTIONS_TTL and data:
+                _sub_options_cache[opt_type] = (ts, data)
+                loaded += 1
+        if loaded:
+            print(f"✅ 서브옵션 캐시 {loaded}개 항목을 파일에서 로드했습니다.", flush=True)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"⚠️ 서브옵션 캐시 파일 로드 실패: {e}", flush=True)
+
+
+def _save_sub_options_file() -> None:
+    """인메모리 캐시 전체를 디스크에 저장합니다."""
+    try:
+        raw = {k: {"ts": v[0], "data": v[1]} for k, v in _sub_options_cache.items()}
+        with open(_SUB_OPTIONS_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(raw, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"⚠️ 서브옵션 캐시 파일 저장 실패: {e}", flush=True)
 
 # ── 아이템 이름 검색 캐시 ───────────────────────────────────────────────────────
 
@@ -160,7 +194,7 @@ async def _fetch_slot_sub_options(option_type: str) -> List[str]:
 
 @app.on_event("startup")
 def load_options():
-    """서버 시작 시 item_options.json 파일을 읽어 캐시에 저장합니다."""
+    """서버 시작 시 item_options.json 및 서브옵션 캐시 파일을 읽어 캐시에 저장합니다."""
     global _options_cache
     options_path = os.path.join(os.path.dirname(__file__), "scraper", "item_options.json")
     try:
@@ -171,6 +205,8 @@ def load_options():
         print("⚠️ 'item_options.json' 파일을 찾을 수 없습니다. 옵션 수집 스크립트를 먼저 실행해주세요.", flush=True)
     except Exception as e:
         print(f"❌ 아이템 옵션 로드 중 오류 발생: {e}", flush=True)
+
+    _load_sub_options_file()
 
 
 # ── 엔드포인트 ─────────────────────────────────────────────────────────────────
@@ -239,6 +275,7 @@ async def get_sub_options(option_type: str):
     print(f"[sub-options] 라이브 조회: {option_type}", flush=True)
     stats = await _fetch_slot_sub_options(option_type)
     _sub_options_cache[option_type] = (now, stats)
+    _save_sub_options_file()
     return {"stats": stats}
 
 

@@ -233,6 +233,7 @@ function App() {
   const [catSortDir,       setCatSortDir]       = useState<SortDir>('asc');
 
   const [colorView,        setColorView]        = useState<ColorView>('carousel');
+  const [colorLabel,       setColorLabel]       = useState<'hex' | 'rgb'>('hex');
   const [sortDir,          setSortDir]          = useState<SortDir>('asc');
   const [inlinePage,       setInlinePage]       = useState(1);
   const [inlinePageSize,   setInlinePageSize]   = useState(20);
@@ -744,7 +745,7 @@ function App() {
   const pagedColors = sortedColors.slice((inlinePage - 1) * inlinePageSize, inlinePage * inlinePageSize);
 
   const colorBarData = useMemo(() => sortedColors.length > 0 ? {
-    labels: sortedColors.map(e => `(${e.r},${e.g},${e.b})`),
+    labels: sortedColors.map(e => colorLabel === 'hex' ? e.hex.toUpperCase() : `(${e.r},${e.g},${e.b})`),
     datasets: [{
       label: '최저가',
       data: sortedColors.map(e => e.price),
@@ -752,7 +753,7 @@ function App() {
       borderColor:     sortedColors.map(e => e.hex),
       borderWidth: 1,
     }],
-  } : null, [sortedColors]);
+  } : null, [sortedColors, colorLabel]);
 
 
   // 퀵서치 결과 클릭 → 해당 뷰의 하이라이트 카드로 이동
@@ -1214,6 +1215,10 @@ function App() {
                   <button className={sortDir === 'asc'  ? 'active' : ''} onClick={() => setSortDir('asc')}>낮은순</button>
                   <button className={sortDir === 'desc' ? 'active' : ''} onClick={() => setSortDir('desc')}>높은순</button>
                 </div>
+                <div className="btn-group">
+                  <button className={colorLabel === 'hex' ? 'active' : ''} onClick={() => setColorLabel('hex')}>HEX</button>
+                  <button className={colorLabel === 'rgb' ? 'active' : ''} onClick={() => setColorLabel('rgb')}>RGB</button>
+                </div>
               </div>
             </div>
 
@@ -1266,8 +1271,8 @@ function App() {
                       <div className="color-card-swatch" style={{ backgroundColor: e.hex }} />
                       <div className="color-card-info">
                         <span className="color-card-price">{fmt(e.price)}</span>
-                        <span className="color-card-hex">{e.hex.toUpperCase()}</span>
-                        <span className="color-card-rgb">({e.r},{e.g},{e.b})</span>
+                        <span className={colorLabel === 'hex' ? 'color-card-hex' : 'color-card-rgb'}>{e.hex.toUpperCase()}</span>
+                        <span className={colorLabel === 'hex' ? 'color-card-rgb' : 'color-card-hex'}>({e.r},{e.g},{e.b})</span>
                       </div>
                     </div>
                   ))}
@@ -1295,8 +1300,8 @@ function App() {
                         <div className="inline-color-bar" style={{ backgroundColor: e.hex }} />
                         <div className="inline-item-info">
                           <span className="inline-price">{fmt(e.price)}</span>
-                          <span className="inline-hex">{e.hex.toUpperCase()}</span>
-                          <span className="inline-rgb">({e.r},{e.g},{e.b})</span>
+                          <span className={colorLabel === 'hex' ? 'inline-hex' : 'inline-rgb'}>{e.hex.toUpperCase()}</span>
+                          <span className={colorLabel === 'hex' ? 'inline-rgb' : 'inline-hex'}>({e.r},{e.g},{e.b})</span>
                         </div>
                       </div>
                     );
@@ -1326,8 +1331,8 @@ function App() {
                   <div key={i} className="color-swatch-card">
                     <div className="color-swatch-box" style={{ backgroundColor: e.hex }} />
                     <div className="color-swatch-info">
-                      <span className="color-hex">{e.hex.toUpperCase()}</span>
-                      <span className="color-rgb">({e.r}, {e.g}, {e.b})</span>
+                      <span className={colorLabel === 'hex' ? 'color-hex' : 'color-rgb'}>{e.hex.toUpperCase()}</span>
+                      <span className={colorLabel === 'hex' ? 'color-rgb' : 'color-hex'}>({e.r}, {e.g}, {e.b})</span>
                       <span className="color-price">{fmt(e.price)}</span>
                     </div>
                   </div>

@@ -1271,8 +1271,8 @@ function App() {
                       <div className="color-card-swatch" style={{ backgroundColor: e.hex }} />
                       <div className="color-card-info">
                         <span className="color-card-price">{fmt(e.price)}</span>
-                        <span className={colorLabel === 'hex' ? 'color-card-hex' : 'color-card-rgb'}>{e.hex.toUpperCase()}</span>
-                        <span className={colorLabel === 'hex' ? 'color-card-rgb' : 'color-card-hex'}>({e.r},{e.g},{e.b})</span>
+                        <span className="color-card-hex">{colorLabel === 'hex' ? e.hex.toUpperCase() : `${e.r},${e.g},${e.b}`}</span>
+                        <span className="color-card-rgb">{colorLabel === 'hex' ? `(${e.r},${e.g},${e.b})` : `(${e.hex.toUpperCase()})`}</span>
                       </div>
                     </div>
                   ))}
@@ -1300,8 +1300,8 @@ function App() {
                         <div className="inline-color-bar" style={{ backgroundColor: e.hex }} />
                         <div className="inline-item-info">
                           <span className="inline-price">{fmt(e.price)}</span>
-                          <span className={colorLabel === 'hex' ? 'inline-hex' : 'inline-rgb'}>{e.hex.toUpperCase()}</span>
-                          <span className={colorLabel === 'hex' ? 'inline-rgb' : 'inline-hex'}>({e.r},{e.g},{e.b})</span>
+                          <span className="inline-hex">{colorLabel === 'hex' ? e.hex.toUpperCase() : `${e.r},${e.g},${e.b}`}</span>
+                          <span className="inline-rgb">{colorLabel === 'hex' ? `(${e.r},${e.g},${e.b})` : `(${e.hex.toUpperCase()})`}</span>
                         </div>
                       </div>
                     );
@@ -1331,8 +1331,8 @@ function App() {
                   <div key={i} className="color-swatch-card">
                     <div className="color-swatch-box" style={{ backgroundColor: e.hex }} />
                     <div className="color-swatch-info">
-                      <span className={colorLabel === 'hex' ? 'color-hex' : 'color-rgb'}>{e.hex.toUpperCase()}</span>
-                      <span className={colorLabel === 'hex' ? 'color-rgb' : 'color-hex'}>({e.r}, {e.g}, {e.b})</span>
+                      <span className="color-hex">{colorLabel === 'hex' ? e.hex.toUpperCase() : `${e.r}, ${e.g}, ${e.b}`}</span>
+                      <span className="color-rgb">{colorLabel === 'hex' ? `(${e.r}, ${e.g}, ${e.b})` : `(${e.hex.toUpperCase()})`}</span>
                       <span className="color-price">{fmt(e.price)}</span>
                     </div>
                   </div>

@@ -233,7 +233,7 @@ function App() {
   const [catSortDir,       setCatSortDir]       = useState<SortDir>('asc');
 
   const [colorView,        setColorView]        = useState<ColorView>('carousel');
-  const [colorLabel,       setColorLabel]       = useState<'hex' | 'rgb'>('hex');
+  const [colorLabel,       setColorLabel]       = useState<'hex' | 'rgb'>('rgb');
   const [sortDir,          setSortDir]          = useState<SortDir>('asc');
   const [inlinePage,       setInlinePage]       = useState(1);
   const [inlinePageSize,   setInlinePageSize]   = useState(20);
@@ -1216,8 +1216,8 @@ function App() {
                   <button className={sortDir === 'desc' ? 'active' : ''} onClick={() => setSortDir('desc')}>높은순</button>
                 </div>
                 <div className="btn-group">
-                  <button className={colorLabel === 'hex' ? 'active' : ''} onClick={() => setColorLabel('hex')}>HEX</button>
                   <button className={colorLabel === 'rgb' ? 'active' : ''} onClick={() => setColorLabel('rgb')}>RGB</button>
+                  <button className={colorLabel === 'hex' ? 'active' : ''} onClick={() => setColorLabel('hex')}>HEX</button>
                 </div>
               </div>
             </div>

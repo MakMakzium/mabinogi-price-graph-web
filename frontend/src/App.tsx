@@ -1249,8 +1249,8 @@ function App() {
                     title="클릭하면 해당 색상으로 이동합니다"
                   >
                     <div className="color-match-swatch" style={{ backgroundColor: sortedColors[matchedIdx].hex }} />
-                    <span className="color-match-hex">{sortedColors[matchedIdx].hex.toUpperCase()}</span>
-                    <span className="color-match-rgb">({sortedColors[matchedIdx].r},{sortedColors[matchedIdx].g},{sortedColors[matchedIdx].b})</span>
+                    <span className="color-match-hex">{colorLabel === 'hex' ? sortedColors[matchedIdx].hex.toUpperCase() : `${sortedColors[matchedIdx].r},${sortedColors[matchedIdx].g},${sortedColors[matchedIdx].b}`}</span>
+                    <span className="color-match-rgb">{colorLabel === 'hex' ? `(${sortedColors[matchedIdx].r},${sortedColors[matchedIdx].g},${sortedColors[matchedIdx].b})` : `(${sortedColors[matchedIdx].hex.toUpperCase()})`}</span>
                     <span className="color-match-price">{fmt(sortedColors[matchedIdx].price)}</span>
                   </div>
                 )}
